@@ -389,7 +389,9 @@
         }
 
         function doExport() {
-            const dataStr = JSON.stringify(transactions, null, 2);
+            // Buang field 'image' (foto struk base64) supaya file export tetap ringan
+            const exportable = transactions.map(({ image, ...rest }) => rest);
+            const dataStr = JSON.stringify(exportable, null, 2);
             const blob = new Blob([dataStr], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const today = new Date().toISOString().slice(0, 10);
@@ -414,6 +416,8 @@
                 try {
                     imported = JSON.parse(ev.target.result);
                     if (!Array.isArray(imported)) throw new Error('Format tidak sesuai');
+                    // Buang field 'image' kalau ada, supaya data yang masuk tetap ringan
+                    imported = imported.map(({ image, ...rest }) => rest);
                 } catch (err) {
                     showConfirmModal(
                         'Import Gagal',
