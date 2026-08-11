@@ -7,6 +7,8 @@
     
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.js"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
@@ -101,6 +103,7 @@
         .badge-struk { background: #3B82F6; color: #FFF; }
         .badge-qr { background: #10B981; color: #FFF; }
         .badge-manual { background: #6B7280; color: #FFF; }
+        .badge-utang { background: #F59E0B; color: #000; }
 
         /* Modal Detail & Modal Konfirmasi */
         .modal-overlay {
@@ -290,25 +293,51 @@
         </div>
     </div>
 
-    <!-- Modal Bayar Angsuran -->
+    <!-- Modal Bayar Angsuran / Tambah Nominal -->
     <div id="modal-angsuran" class="modal-overlay hidden">
         <div class="modal-body modal-confirm-body">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; border-bottom: 1px solid #443C28; padding-bottom: 8px;">
-                <h3 style="color:#D4AF37;">Bayar Angsuran</h3>
+                <h3 style="color:#D4AF37;">Kelola Utang/Piutang</h3>
                 <button onclick="closeAngsuranModal()" style="background:none; border:none; color:#AAA; font-size:18px; cursor:pointer;">✕</button>
             </div>
             <p style="font-size:13px; color:#CCC; margin-bottom:12px;">
                 <span id="angsuran-nama" style="color:#FFF; font-weight:700;"></span><br>
                 Sisa: <span id="angsuran-sisa" style="color:#D4AF37; font-weight:700;"></span>
             </p>
-            <div class="form-group">
-                <label>Nominal Angsuran (Rp)</label>
-                <input type="number" id="angsuran-amount" placeholder="Contoh: 50000">
+
+            <div class="tabs" style="margin-bottom:14px;">
+                <button onclick="switchAngsuranTab('bayar')" id="angsurantab-bayar" class="tab-btn active">Bayar Angsuran</button>
+                <button onclick="switchAngsuranTab('tambah')" id="angsurantab-tambah" class="tab-btn">Tambah Nominal</button>
             </div>
-            <p id="angsuran-error" class="hidden" style="color:#FF5252; font-size:12px; margin-bottom:10px;"></p>
-            <div style="display:flex; gap:8px;">
-                <button onclick="closeAngsuranModal()" class="btn btn-secondary">Batal</button>
-                <button onclick="submitAngsuran()" class="btn btn-gold">Bayar</button>
+
+            <!-- Sub-form: Bayar Angsuran -->
+            <div id="angsuran-sub-bayar">
+                <div class="form-group">
+                    <label>Nominal Angsuran (Rp)</label>
+                    <input type="number" id="angsuran-amount" placeholder="Contoh: 50000">
+                </div>
+                <p id="angsuran-error" class="hidden" style="color:#FF5252; font-size:12px; margin-bottom:10px;"></p>
+                <div style="display:flex; gap:8px;">
+                    <button onclick="closeAngsuranModal()" class="btn btn-secondary">Batal</button>
+                    <button onclick="submitAngsuran()" class="btn btn-gold">Bayar</button>
+                </div>
+            </div>
+
+            <!-- Sub-form: Tambah Nominal (orang yang sama utang/piutang lagi) -->
+            <div id="angsuran-sub-tambah" class="hidden">
+                <div class="form-group">
+                    <label>Tambahan Nominal (Rp)</label>
+                    <input type="number" id="tambah-amount" placeholder="Contoh: 50000">
+                </div>
+                <div class="form-group">
+                    <label>Catatan</label>
+                    <input type="text" id="tambah-note" placeholder="Misal: Pinjam lagi buat beli pulsa">
+                </div>
+                <p id="tambah-error" class="hidden" style="color:#FF5252; font-size:12px; margin-bottom:10px;"></p>
+                <div style="display:flex; gap:8px;">
+                    <button onclick="closeAngsuranModal()" class="btn btn-secondary">Batal</button>
+                    <button onclick="submitTambahNominal()" class="btn btn-gold">Tambah</button>
+                </div>
             </div>
 
             <div id="angsuran-history" style="margin-top:16px;"></div>
@@ -511,8 +540,65 @@
             });
 
             saveDebts();
-            refreshRightCard();
             closeAngsuranModal();
+
+            // Otomatis catat ke uang utama: piutang dibayar = uang masuk, utang dibayar = uang keluar
+            addTransaction({
+                source: 'utang',
+                type: type === 'piutang' ? 'in' : 'out',
+                amount: val,
+                category: type === 'piutang' ? 'Pelunasan Piutang' : 'Pelunasan Utang',
+                note: type === 'piutang' ? `Angsuran dari ${d.name}` : `Bayar angsuran ke ${d.name}`
+            });
+            // addTransaction() otomatis memanggil render() -> refreshRightCard()
+        }
+
+        /* --- SWITCH SUB-TAB DI DALAM MODAL ANGSURAN (Bayar / Tambah Nominal) --- */
+        function switchAngsuranTab(tab) {
+            ['bayar', 'tambah'].forEach(t => {
+                document.getElementById(`angsuran-sub-${t}`).classList.add('hidden');
+                document.getElementById(`angsurantab-${t}`).classList.remove('active');
+            });
+            document.getElementById(`angsuran-sub-${tab}`).classList.remove('hidden');
+            document.getElementById(`angsurantab-${tab}`).classList.add('active');
+
+            // reset pesan error tiap ganti sub-tab
+            document.getElementById('angsuran-error').classList.add('hidden');
+            document.getElementById('tambah-error').classList.add('hidden');
+        }
+
+        /* --- TAMBAH NOMINAL: orang yang sama utang/piutang lagi --- */
+        function submitTambahNominal() {
+            const { type, index } = angsuranContext;
+            const d = debts[type][index];
+            const val = parseInt(document.getElementById('tambah-amount').value);
+            const note = document.getElementById('tambah-note').value;
+
+            const errorEl = document.getElementById('tambah-error');
+            if (!val || val <= 0) {
+                errorEl.innerText = 'Nominal tambahan tidak valid.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            errorEl.classList.add('hidden');
+
+            // Tambah ke nominal utang/piutang yang sudah ada
+            d.amount += val;
+
+            // Catat juga ke riwayat (nominal negatif = penambahan, biar beda dari pembayaran)
+            if (!d.payments) d.payments = [];
+            d.payments.push({
+                amount: -val,
+                note: note || 'Tambahan pinjaman',
+                date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+                timestamp: Date.now()
+            });
+
+            saveDebts();
+            document.getElementById('tambah-amount').value = '';
+            document.getElementById('tambah-note').value = '';
+            closeAngsuranModal();
+            refreshRightCard();
         }
 
         function confirmDeleteDebt(type, index) {
@@ -538,6 +624,7 @@
             } else {
                 titleEl.innerText = 'Riwayat Transaksi';
                 actionsEl.innerHTML = `
+                    <button onclick="exportInvoicePDF()" class="link-btn" style="color:#D4AF37;">🧾 Invoice PDF</button>
                     <button onclick="exportData()" class="link-btn" style="color:#4CAF50;">⬇ Export</button>
                     <button onclick="document.getElementById('import-file-input').click()" class="link-btn" style="color:#3B82F6;">⬆ Import</button>
                     <button onclick="clearAllData()" class="link-btn" style="color:#FF5252;">Hapus Semua</button>
@@ -546,79 +633,42 @@
             }
         }
 
-        /* Gabungkan transaksi uang utama + riwayat angsuran (dibayar/membayar), urut dari terbaru */
+        /* Render Riwayat Transaksi uang utama, termasuk transaksi otomatis dari pelunasan utang/piutang */
         function renderMainFeedInto(listEl) {
-            const feed = [];
-
-            transactions.forEach((tx, idx) => {
-                feed.push({ kind: 'tx', idx, timestamp: tx.timestamp || 0 });
-            });
-
-            ['piutang', 'utang'].forEach(debtType => {
-                debts[debtType].forEach(d => {
-                    (d.payments || []).forEach(p => {
-                        feed.push({ kind: 'payment', debtType, name: d.name, amount: p.amount, date: p.date, timestamp: p.timestamp || 0 });
-                    });
-                });
-            });
-
-            feed.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
             listEl.innerHTML = '';
-            if (feed.length === 0) {
+
+            if (transactions.length === 0) {
                 listEl.innerHTML = '<p style="font-size:13px; color:#666; text-align:center; padding: 12px 0;">Belum ada transaksi.</p>';
                 return;
             }
 
-            feed.forEach(entry => {
+            transactions.slice().reverse().forEach((tx, index) => {
+                const actualIndex = transactions.length - 1 - index;
+                const isOut = tx.type === 'out';
+
+                let badgeClass = 'badge-manual';
+                let badgeText = 'Manual';
+                if (tx.source === 'struk') { badgeClass = 'badge-struk'; badgeText = 'Struk'; }
+                if (tx.source === 'qr') { badgeClass = 'badge-qr'; badgeText = 'QR'; }
+                if (tx.source === 'utang') { badgeClass = 'badge-utang'; badgeText = 'Utang'; }
+
                 const item = document.createElement('div');
                 item.className = 'tx-card';
-
-                if (entry.kind === 'tx') {
-                    const tx = transactions[entry.idx];
-                    const isOut = tx.type === 'out';
-                    let badgeClass = 'badge-manual';
-                    let badgeText = 'Manual';
-                    if (tx.source === 'struk') { badgeClass = 'badge-struk'; badgeText = 'Struk'; }
-                    if (tx.source === 'qr') { badgeClass = 'badge-qr'; badgeText = 'QR'; }
-
-                    item.onclick = () => showDetailModal(entry.idx);
-                    item.innerHTML = `
-                        <div class="tx-card-main">
-                            <div>
-                                <div><span class="badge ${badgeClass}">${badgeText}</span><strong style="color:#FFF; font-size:14px;">${tx.note || tx.category}</strong></div>
-                                <div style="font-size:11px; color:#888; margin-top:4px;">${tx.date} • ${tx.category}</div>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <span style="font-weight:bold; font-size:14px; color:${isOut ? '#FF5252' : '#4CAF50'};">
-                                    ${isOut ? '-' : '+'} Rp ${tx.amount.toLocaleString('id-ID')}
-                                </span>
-                                <button onclick="event.stopPropagation(); confirmDeleteTransaction(${entry.idx})" style="background:none; border:none; color:#666; cursor:pointer;">✕</button>
-                            </div>
+                item.onclick = () => showDetailModal(actualIndex);
+                item.innerHTML = `
+                    <div class="tx-card-main">
+                        <div>
+                            <div><span class="badge ${badgeClass}">${badgeText}</span><strong style="color:#FFF; font-size:14px;">${tx.note || tx.category}</strong></div>
+                            <div style="font-size:11px; color:#888; margin-top:4px;">${tx.date} • ${tx.category}</div>
                         </div>
-                    `;
-                } else {
-                    // Entry riwayat angsuran: piutang = uang masuk (dibayar orang), utang = uang keluar (kita membayar)
-                    const isIncoming = entry.debtType === 'piutang';
-                    const badgeClass = isIncoming ? 'badge-qr' : 'badge-struk';
-                    const badgeText = isIncoming ? 'DIBAYAR' : 'MEMBAYAR';
-                    const color = isIncoming ? '#4CAF50' : '#FF5252';
-                    const label = isIncoming ? `Angsuran dari ${entry.name}` : `Bayar angsuran ke ${entry.name}`;
-
-                    item.style.cursor = 'default';
-                    item.innerHTML = `
-                        <div class="tx-card-main">
-                            <div>
-                                <div><span class="badge ${badgeClass}">${badgeText}</span><strong style="color:#FFF; font-size:14px;">${label}</strong></div>
-                                <div style="font-size:11px; color:#888; margin-top:4px;">${entry.date} • Utang & Piutang</div>
-                            </div>
-                            <span style="font-weight:bold; font-size:14px; color:${color};">
-                                ${isIncoming ? '+' : '-'} Rp ${entry.amount.toLocaleString('id-ID')}
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-weight:bold; font-size:14px; color:${isOut ? '#FF5252' : '#4CAF50'};">
+                                ${isOut ? '-' : '+'} Rp ${tx.amount.toLocaleString('id-ID')}
                             </span>
+                            <button onclick="event.stopPropagation(); confirmDeleteTransaction(${actualIndex})" style="background:none; border:none; color:#666; cursor:pointer;">✕</button>
                         </div>
-                    `;
-                }
-
+                    </div>
+                `;
                 listEl.appendChild(item);
             });
         }
@@ -739,6 +789,88 @@
             a.click();
             a.remove();
             URL.revokeObjectURL(url);
+        }
+
+        /* --- INVOICE PDF (bukan export data, tapi laporan berbentuk invoice untuk dilihat/dicetak) --- */
+        function exportInvoicePDF() {
+            if (transactions.length === 0) {
+                showConfirmModal('Tidak Ada Data', 'Belum ada transaksi untuk dibuatkan invoice.', [{ label: 'OK', class: 'btn-gold' }]);
+                return;
+            }
+            showConfirmModal(
+                'Buat Invoice PDF?',
+                `Akan dibuat 1 file PDF berisi ringkasan ${transactions.length} transaksi, urut dari yang terlama.`,
+                [
+                    { label: 'Batal', class: 'btn-secondary' },
+                    { label: 'Buat PDF', class: 'btn-gold', onClick: doGenerateInvoicePDF }
+                ]
+            );
+        }
+
+        function doGenerateInvoicePDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // Urutkan dari transaksi terlama ke terbaru, seperti mutasi rekening
+            const sorted = transactions.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+            let totalIn = 0, totalOut = 0, saldoBerjalan = 0;
+            const rows = sorted.map(tx => {
+                const debit = tx.type === 'out' ? tx.amount : 0;
+                const kredit = tx.type === 'in' ? tx.amount : 0;
+                totalOut += debit;
+                totalIn += kredit;
+                saldoBerjalan += kredit - debit;
+                return [
+                    tx.date,
+                    tx.note || tx.category,
+                    tx.category,
+                    debit ? `Rp ${debit.toLocaleString('id-ID')}` : '-',
+                    kredit ? `Rp ${kredit.toLocaleString('id-ID')}` : '-',
+                    `Rp ${saldoBerjalan.toLocaleString('id-ID')}`
+                ];
+            });
+
+            // Header invoice
+            doc.setFontSize(18);
+            doc.setTextColor(180, 140, 20);
+            doc.text('FINANCE TRACKER', 14, 20);
+
+            doc.setFontSize(11);
+            doc.setTextColor(90, 90, 90);
+            doc.text('Laporan Mutasi Keuangan', 14, 27);
+            doc.text(`Dicetak: ${new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`, 14, 33);
+            doc.text(`Periode: ${sorted[0].date} - ${sorted[sorted.length - 1].date}`, 14, 39);
+
+            doc.autoTable({
+                startY: 46,
+                head: [['Tanggal', 'Keterangan', 'Kategori', 'Debit', 'Kredit', 'Saldo']],
+                body: rows,
+                theme: 'grid',
+                headStyles: { fillColor: [212, 175, 55], textColor: [0, 0, 0], fontStyle: 'bold' },
+                styles: { fontSize: 8.5, cellPadding: 3 },
+                columnStyles: {
+                    3: { halign: 'right' },
+                    4: { halign: 'right' },
+                    5: { halign: 'right' }
+                }
+            });
+
+            const finalY = doc.lastAutoTable.finalY + 10;
+            doc.setFontSize(10.5);
+            doc.setTextColor(0, 0, 0);
+            doc.text(`Total Pemasukan   : Rp ${totalIn.toLocaleString('id-ID')}`, 14, finalY);
+            doc.text(`Total Pengeluaran : Rp ${totalOut.toLocaleString('id-ID')}`, 14, finalY + 6);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Saldo Akhir       : Rp ${(totalIn - totalOut).toLocaleString('id-ID')}`, 14, finalY + 14);
+            doc.setFont(undefined, 'normal');
+
+            doc.setFontSize(8);
+            doc.setTextColor(150, 150, 150);
+            doc.text('Dibuat otomatis oleh Finance Tracker', 14, doc.internal.pageSize.height - 10);
+
+            const today = new Date().toISOString().slice(0, 10);
+            doc.save(`invoice-finance-tracker-${today}.pdf`);
         }
 
         /* --- IMPORT DATA --- */
@@ -952,8 +1084,6 @@
         }
 
         render();
-        renderDebts('piutang');
-        renderDebts('utang');
     </script>
 </body>
 </html>
