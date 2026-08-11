@@ -27,6 +27,20 @@
         }
 
         main { max-width: 500px; margin: 20px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 16px; }
+
+        .left-col, .right-col { display: flex; flex-direction: column; gap: 16px; }
+
+        /* ===== DESKTOP LAYOUT: kiri form, kanan riwayat, satu baris ===== */
+        @media (min-width: 900px) {
+            .header-content { max-width: 1100px; }
+            main {
+                max-width: 1100px;
+                display: grid;
+                grid-template-columns: 1fr 1.2fr;
+                align-items: start;
+                gap: 24px;
+            }
+        }
         
         .card {
             background: #1E1E1E; padding: 18px; border-radius: 14px;
@@ -63,9 +77,16 @@
         }
         .btn-gold { background: linear-gradient(135deg, #FFD700, #D4AF37); color: #000; }
         .btn-secondary { background: #333; color: #CCC; border: 1px solid #555; }
+        .btn-danger { background: linear-gradient(135deg, #FF6B6B, #D32F2F); color: #FFF; }
+
+        .link-btn {
+            background: none; border: none; font-size: 12px; font-weight: 700;
+            cursor: pointer; padding: 4px 2px;
+        }
 
         /* List Transaksi Cards */
-        .tx-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .tx-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+        .tx-actions { display: flex; gap: 12px; align-items: center; }
         .tx-card {
             background: #252525; border-radius: 10px; padding: 12px; margin-bottom: 10px;
             border: 1px solid #332B15; cursor: pointer; transition: transform 0.1s;
@@ -81,16 +102,17 @@
         .badge-qr { background: #10B981; color: #FFF; }
         .badge-manual { background: #6B7280; color: #FFF; }
 
-        /* Modal Detail */
+        /* Modal Detail & Modal Konfirmasi */
         .modal-overlay {
             position: fixed; top:0; left:0; right:0; bottom:0;
             background: rgba(0,0,0,0.8); display: flex; justify-content: center;
-            align-items: center; p-padding: 16px; z-index: 999;
+            align-items: center; padding: 16px; z-index: 999;
         }
         .modal-body {
             background: #1E1E1E; border: 1px solid #D4AF37; width: 100%; max-width: 450px;
             border-radius: 14px; padding: 18px; max-height: 85vh; overflow-y: auto;
         }
+        .modal-body.modal-confirm-body { max-width: 380px; }
         .item-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #333; }
         
         #struk-preview { max-height: 180px; width: 100%; object-fit: contain; border-radius: 8px; margin-bottom: 12px; }
@@ -107,6 +129,7 @@
     </header>
 
     <main>
+      <div class="left-col">
         <div class="tabs">
             <button onclick="switchTab('manual')" id="tab-manual" class="tab-btn active">Manual</button>
             <button onclick="switchTab('qr')" id="tab-qr" class="tab-btn">QR Code</button>
@@ -177,15 +200,23 @@
                 <button onclick="saveStrukTransaction()" class="btn btn-gold">Simpan Dari Struk</button>
             </div>
         </section>
+      </div>
 
+      <div class="right-col">
         <!-- Riwayat Transaksi -->
         <section class="card">
             <div class="tx-header">
                 <h3 style="color: #D4AF37;">Riwayat Transaksi</h3>
-                <button onclick="clearAllData()" style="background:none; border:none; color:#FF5252; font-size:12px; cursor:pointer;">Hapus Semua</button>
+                <div class="tx-actions">
+                    <button onclick="exportData()" class="link-btn" style="color:#4CAF50;">⬇ Export</button>
+                    <button onclick="document.getElementById('import-file-input').click()" class="link-btn" style="color:#3B82F6;">⬆ Import</button>
+                    <button onclick="clearAllData()" class="link-btn" style="color:#FF5252;">Hapus Semua</button>
+                </div>
+                <input type="file" id="import-file-input" accept=".json,application/json" class="hidden">
             </div>
             <div id="transaction-list"></div>
         </section>
+      </div>
     </main>
 
     <!-- Modal View Detail -->
@@ -196,6 +227,15 @@
                 <button onclick="closeModal()" style="background:none; border:none; color:#AAA; font-size:18px; cursor:pointer;">✕</button>
             </div>
             <div id="modal-content"></div>
+        </div>
+    </div>
+
+    <!-- Modal Konfirmasi (dipakai untuk delete, hapus semua, export, import) -->
+    <div id="modal-confirm" class="modal-overlay hidden">
+        <div class="modal-body modal-confirm-body">
+            <h3 id="confirm-title" style="color:#D4AF37; margin-bottom: 8px;">Konfirmasi</h3>
+            <p id="confirm-message" style="font-size: 13px; color: #CCC; line-height:1.5;"></p>
+            <div id="confirm-buttons" style="display:flex; gap:8px; margin-top:18px;"></div>
         </div>
     </div>
 
@@ -247,7 +287,7 @@
                                 <span style="font-weight:bold; font-size:14px; color:${isOut ? '#FF5252' : '#4CAF50'};">
                                     ${isOut ? '-' : '+'} Rp ${tx.amount.toLocaleString('id-ID')}
                                 </span>
-                                <button onclick="event.stopPropagation(); deleteTransaction(${actualIndex})" style="background:none; border:none; color:#666; cursor:pointer;">✕</button>
+                                <button onclick="event.stopPropagation(); confirmDeleteTransaction(${actualIndex})" style="background:none; border:none; color:#666; cursor:pointer;">✕</button>
                             </div>
                         </div>
                     `;
@@ -279,17 +319,123 @@
             document.getElementById('form-manual').reset();
         }
 
-        function deleteTransaction(index) {
-            transactions.splice(index, 1);
-            render();
+        /* --- MODAL KONFIRMASI GENERIK --- */
+        function showConfirmModal(title, message, buttons) {
+            document.getElementById('confirm-title').innerText = title;
+            document.getElementById('confirm-message').innerText = message;
+
+            const container = document.getElementById('confirm-buttons');
+            container.innerHTML = '';
+            buttons.forEach(b => {
+                const btn = document.createElement('button');
+                btn.innerText = b.label;
+                btn.className = `btn ${b.class || 'btn-secondary'}`;
+                btn.style.flex = '1';
+                btn.onclick = () => {
+                    closeConfirmModal();
+                    if (b.onClick) b.onClick();
+                };
+                container.appendChild(btn);
+            });
+
+            document.getElementById('modal-confirm').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('modal-confirm').classList.add('hidden');
+        }
+
+        /* --- DELETE (dengan modal konfirmasi) --- */
+        function confirmDeleteTransaction(index) {
+            showConfirmModal(
+                'Hapus Transaksi?',
+                'Transaksi ini akan dihapus permanen dan tidak bisa dikembalikan.',
+                [
+                    { label: 'Batal', class: 'btn-secondary' },
+                    { label: 'Hapus', class: 'btn-danger', onClick: () => { transactions.splice(index, 1); render(); } }
+                ]
+            );
         }
 
         function clearAllData() {
-            if (confirm('Yakin ingin menghapus seluruh riwayat?')) {
-                transactions = [];
-                render();
+            if (transactions.length === 0) {
+                showConfirmModal('Tidak Ada Data', 'Belum ada transaksi yang bisa dihapus.', [{ label: 'OK', class: 'btn-gold' }]);
+                return;
             }
+            showConfirmModal(
+                'Hapus Semua Data?',
+                `Seluruh ${transactions.length} transaksi akan dihapus permanen dari perangkat ini.`,
+                [
+                    { label: 'Batal', class: 'btn-secondary' },
+                    { label: 'Hapus Semua', class: 'btn-danger', onClick: () => { transactions = []; render(); } }
+                ]
+            );
         }
+
+        /* --- EXPORT DATA --- */
+        function exportData() {
+            if (transactions.length === 0) {
+                showConfirmModal('Tidak Ada Data', 'Belum ada transaksi untuk diekspor.', [{ label: 'OK', class: 'btn-gold' }]);
+                return;
+            }
+            showConfirmModal(
+                'Export Data?',
+                `Anda akan mengunduh ${transactions.length} transaksi dalam format JSON ke perangkat ini.`,
+                [
+                    { label: 'Batal', class: 'btn-secondary' },
+                    { label: 'Export', class: 'btn-gold', onClick: doExport }
+                ]
+            );
+        }
+
+        function doExport() {
+            const dataStr = JSON.stringify(transactions, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const today = new Date().toISOString().slice(0, 10);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `finance-tracker-${today}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        /* --- IMPORT DATA --- */
+        document.getElementById('import-file-input').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (ev) {
+                let imported;
+                try {
+                    imported = JSON.parse(ev.target.result);
+                    if (!Array.isArray(imported)) throw new Error('Format tidak sesuai');
+                } catch (err) {
+                    showConfirmModal(
+                        'Import Gagal',
+                        'File tidak valid. Pastikan file adalah hasil export dari aplikasi ini (.json berisi array transaksi).',
+                        [{ label: 'OK', class: 'btn-gold' }]
+                    );
+                    return;
+                }
+
+                showConfirmModal(
+                    'Import Data',
+                    `File berisi ${imported.length} transaksi. Gabungkan dengan data yang ada, atau timpa seluruh data lama?`,
+                    [
+                        { label: 'Batal', class: 'btn-secondary' },
+                        { label: 'Gabungkan', class: 'btn-secondary', onClick: () => { transactions = transactions.concat(imported); render(); } },
+                        { label: 'Timpa Semua', class: 'btn-danger', onClick: () => { transactions = imported; render(); } }
+                    ]
+                );
+            };
+            reader.readAsText(file);
+            e.target.value = ''; // reset supaya file yang sama bisa dipilih lagi
+        });
 
         /* --- DETAIL MODAL --- */
         function showDetailModal(index) {
