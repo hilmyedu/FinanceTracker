@@ -1,1 +1,471 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Tracker - Gold Edition Detail Card</title>
+    
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background-color: #121212; color: #E0E0E0; padding-bottom: 40px; }
+
+        header {
+            background: linear-gradient(135deg, #1A1A1A, #2A2415);
+            color: #D4AF37;
+            padding: 16px;
+            border-bottom: 1px solid #D4AF37;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .header-content { max-width: 500px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+        .balance-badge {
+            background: linear-gradient(135deg, #D4AF37, #AA7C11);
+            color: #000; padding: 6px 14px; border-radius: 20px; font-weight: 700;
+        }
+
+        main { max-width: 500px; margin: 20px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 16px; }
+        
+        .card {
+            background: #1E1E1E; padding: 18px; border-radius: 14px;
+            border: 1px solid #332B15; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .tabs { display: flex; background: #1E1E1E; padding: 4px; border-radius: 12px; gap: 4px; border: 1px solid #332B15; }
+        .tab-btn {
+            flex: 1; padding: 10px; border: none; background: transparent;
+            font-weight: 600; color: #888; border-radius: 8px; cursor: pointer;
+        }
+        .tab-btn.active { background: linear-gradient(135deg, #D4AF37, #996515); color: #000; font-weight: 700; }
+        .hidden { display: none !important; }
+
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 12px; font-weight: 600; color: #D4AF37; margin-bottom: 6px; }
+
+        input[type="text"], input[type="number"], select, input[type="file"] {
+            width: 100%; padding: 10px; background: #2A2A2A; border: 1px solid #443C28;
+            color: #FFF; border-radius: 8px; outline: none; font-size: 14px;
+        }
+        input:focus, select:focus { border-color: #D4AF37; }
+
+        .radio-group { display: flex; gap: 8px; margin-bottom: 12px; }
+        .radio-label {
+            flex: 1; border: 1px solid #443C28; background: #2A2A2A; padding: 10px;
+            border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;
+            cursor: pointer; font-size: 14px; font-weight: 600;
+        }
+
+        .btn {
+            width: 100%; padding: 12px; border: none; border-radius: 8px;
+            font-weight: 700; cursor: pointer; font-size: 14px;
+        }
+        .btn-gold { background: linear-gradient(135deg, #FFD700, #D4AF37); color: #000; }
+        .btn-secondary { background: #333; color: #CCC; border: 1px solid #555; }
+
+        /* List Transaksi Cards */
+        .tx-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .tx-card {
+            background: #252525; border-radius: 10px; padding: 12px; margin-bottom: 10px;
+            border: 1px solid #332B15; cursor: pointer; transition: transform 0.1s;
+        }
+        .tx-card:active { transform: scale(0.98); }
+        .tx-card-main { display: flex; justify-content: space-between; align-items: center; }
+        
+        .badge {
+            display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px;
+            border-radius: 4px; margin-right: 4px; text-transform: uppercase;
+        }
+        .badge-struk { background: #3B82F6; color: #FFF; }
+        .badge-qr { background: #10B981; color: #FFF; }
+        .badge-manual { background: #6B7280; color: #FFF; }
+
+        /* Modal Detail */
+        .modal-overlay {
+            position: fixed; top:0; left:0; right:0; bottom:0;
+            background: rgba(0,0,0,0.8); display: flex; justify-content: center;
+            align-items: center; p-padding: 16px; z-index: 999;
+        }
+        .modal-body {
+            background: #1E1E1E; border: 1px solid #D4AF37; width: 100%; max-width: 450px;
+            border-radius: 14px; padding: 18px; max-height: 85vh; overflow-y: auto;
+        }
+        .item-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #333; }
+        
+        #struk-preview { max-height: 180px; width: 100%; object-fit: contain; border-radius: 8px; margin-bottom: 12px; }
+        #qr-reader video { width: 100% !important; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-content">
+            <h2>🏆 Finance Tracker</h2>
+            <div id="balance" class="balance-badge">Rp 0</div>
+        </div>
+    </header>
+
+    <main>
+        <div class="tabs">
+            <button onclick="switchTab('manual')" id="tab-manual" class="tab-btn active">Manual</button>
+            <button onclick="switchTab('qr')" id="tab-qr" class="tab-btn">QR Code</button>
+            <button onclick="switchTab('struk')" id="tab-struk" class="tab-btn">Struk OCR</button>
+        </div>
+
+        <!-- 1. Form Manual -->
+        <section id="sec-manual" class="card">
+            <h3 style="margin-bottom: 12px; color: #D4AF37;">Input Manual</h3>
+            <form id="form-manual" onsubmit="addTransactionManual(event)">
+                <div class="radio-group">
+                    <label class="radio-label" style="color: #FF5252;"><input type="radio" name="type" value="out" checked> Pengeluaran</label>
+                    <label class="radio-label" style="color: #4CAF50;"><input type="radio" name="type" value="in"> Pemasukan</label>
+                </div>
+                <div class="form-group">
+                    <label>Nominal (Rp)</label>
+                    <input type="number" id="manual-amount" placeholder="Contoh: 25000" required>
+                </div>
+                <div class="form-group">
+                    <label>Kategori</label>
+                    <select id="manual-category">
+                        <option value="Makanan">Makanan & Minuman</option>
+                        <option value="Belanja">Belanja / Struk</option>
+                        <option value="Transport">Transportasi</option>
+                        <option value="Gaji">Gaji / Inflow</option>
+                        <option value="Lainnya">Lainnya</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Catatan</label>
+                    <input type="text" id="manual-note" placeholder="Misal: Makan siang">
+                </div>
+                <button type="submit" class="btn btn-gold">Tambah Transaksi</button>
+            </form>
+        </section>
+
+        <!-- 2. Form QR Code -->
+        <section id="sec-qr" class="card hidden">
+            <h3 style="margin-bottom: 12px; color: #D4AF37;">Scan / Unggah QR Code</h3>
+            <div class="form-group">
+                <label>Pilih Gambar QR dari Galeri:</label>
+                <input type="file" id="qr-input-file" accept="image/*">
+            </div>
+            <div style="text-align: center; margin: 10px 0; color: #666; font-size: 12px;">— ATAU SCAN LIVE —</div>
+            <div id="qr-reader"></div>
+            <button id="btn-stop-qr" onclick="stopQRScanner()" class="btn btn-secondary hidden" style="margin-top: 10px;">Matikan Kamera</button>
+        </section>
+
+        <!-- 3. Form Struk OCR -->
+        <section id="sec-struk" class="card hidden">
+            <h3 style="margin-bottom: 6px; color: #D4AF37;">Scan Struk Belanja</h3>
+            <input type="file" id="struk-file" accept="image/*" style="margin-bottom: 12px;">
+            
+            <div id="ocr-status" class="hidden" style="color: #FFD700; font-weight: 600; font-size: 14px; margin-bottom: 12px;">
+                ⏳ <span id="ocr-progress-text">Membaca gambar...</span>
+            </div>
+
+            <div id="struk-preview-container" class="hidden">
+                <img id="struk-preview" src="">
+                <div class="form-group">
+                    <label>Hasil Deteksi Nominal (Bisa diedit):</label>
+                    <input type="number" id="struk-detected-amount" style="font-weight: bold; color: #FFD700; font-size: 16px;">
+                </div>
+                <div class="form-group">
+                    <label>Nama Toko / Merchant:</label>
+                    <input type="text" id="struk-note" placeholder="Nama Toko">
+                </div>
+                <button onclick="saveStrukTransaction()" class="btn btn-gold">Simpan Dari Struk</button>
+            </div>
+        </section>
+
+        <!-- Riwayat Transaksi -->
+        <section class="card">
+            <div class="tx-header">
+                <h3 style="color: #D4AF37;">Riwayat Transaksi</h3>
+                <button onclick="clearAllData()" style="background:none; border:none; color:#FF5252; font-size:12px; cursor:pointer;">Hapus Semua</button>
+            </div>
+            <div id="transaction-list"></div>
+        </section>
+    </main>
+
+    <!-- Modal View Detail -->
+    <div id="modal-detail" class="modal-overlay hidden">
+        <div class="modal-body">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; border-bottom: 1px solid #443C28; padding-bottom: 8px;">
+                <h3 id="modal-title" style="color:#D4AF37;">Detail Transaksi</h3>
+                <button onclick="closeModal()" style="background:none; border:none; color:#AAA; font-size:18px; cursor:pointer;">✕</button>
+            </div>
+            <div id="modal-content"></div>
+        </div>
+    </div>
+
+    <script>
+        let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+        let html5QrCode = null;
+        let currentParsedStrukData = null; // Menyimpan temp detail item & foto struk
+
+        function switchTab(tab) {
+            ['manual', 'qr', 'struk'].forEach(t => {
+                document.getElementById(`sec-${t}`).classList.add('hidden');
+                document.getElementById(`tab-${t}`).classList.remove('active');
+            });
+
+            document.getElementById(`sec-${tab}`).classList.remove('hidden');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+
+            if (tab === 'qr') startQRScanner(); else stopQRScanner();
+        }
+
+        function render() {
+            const listEl = document.getElementById('transaction-list');
+            listEl.innerHTML = '';
+            let totalBalance = 0;
+
+            if (transactions.length === 0) {
+                listEl.innerHTML = '<p style="font-size:13px; color:#666; text-align:center; padding: 12px 0;">Belum ada transaksi.</p>';
+            } else {
+                transactions.slice().reverse().forEach((tx, index) => {
+                    const actualIndex = transactions.length - 1 - index;
+                    const isOut = tx.type === 'out';
+                    totalBalance += isOut ? -tx.amount : tx.amount;
+
+                    let badgeClass = 'badge-manual';
+                    let badgeText = 'Manual';
+                    if(tx.source === 'struk') { badgeClass = 'badge-struk'; badgeText = 'Struk'; }
+                    if(tx.source === 'qr') { badgeClass = 'badge-qr'; badgeText = 'QR'; }
+
+                    const item = document.createElement('div');
+                    item.className = 'tx-card';
+                    item.onclick = () => showDetailModal(actualIndex);
+                    item.innerHTML = `
+                        <div class="tx-card-main">
+                            <div>
+                                <div><span class="badge ${badgeClass}">${badgeText}</span><strong style="color:#FFF; font-size:14px;">${tx.note || tx.category}</strong></div>
+                                <div style="font-size:11px; color:#888; margin-top:4px;">${tx.date} • ${tx.category}</div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-weight:bold; font-size:14px; color:${isOut ? '#FF5252' : '#4CAF50'};">
+                                    ${isOut ? '-' : '+'} Rp ${tx.amount.toLocaleString('id-ID')}
+                                </span>
+                                <button onclick="event.stopPropagation(); deleteTransaction(${actualIndex})" style="background:none; border:none; color:#666; cursor:pointer;">✕</button>
+                            </div>
+                        </div>
+                    `;
+                    listEl.appendChild(item);
+                });
+            }
+
+            document.getElementById('balance').innerText = `Rp ${totalBalance.toLocaleString('id-ID')}`;
+            localStorage.setItem('transactions', JSON.stringify(transactions));
+        }
+
+        function addTransaction(txObj) {
+            transactions.push({
+                date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+                ...txObj
+            });
+            render();
+        }
+
+        function addTransactionManual(e) {
+            e.preventDefault();
+            addTransaction({
+                source: 'manual',
+                type: document.querySelector('input[name="type"]:checked').value,
+                amount: parseInt(document.getElementById('manual-amount').value),
+                category: document.getElementById('manual-category').value,
+                note: document.getElementById('manual-note').value
+            });
+            document.getElementById('form-manual').reset();
+        }
+
+        function deleteTransaction(index) {
+            transactions.splice(index, 1);
+            render();
+        }
+
+        function clearAllData() {
+            if (confirm('Yakin ingin menghapus seluruh riwayat?')) {
+                transactions = [];
+                render();
+            }
+        }
+
+        /* --- DETAIL MODAL --- */
+        function showDetailModal(index) {
+            const tx = transactions[index];
+            const content = document.getElementById('modal-content');
+            let html = `
+                <div style="margin-bottom:12px;">
+                    <span style="font-size:12px; color:#AAA;">Nominal:</span>
+                    <h2 style="color:${tx.type==='out'?'#FF5252':'#4CAF50'}">Rp ${tx.amount.toLocaleString('id-ID')}</h2>
+                </div>
+                <p style="font-size:13px; color:#CCC;"><strong>Kategori:</strong> ${tx.category}</p>
+                <p style="font-size:13px; color:#CCC;"><strong>Tanggal:</strong> ${tx.date}</p>
+                <p style="font-size:13px; color:#CCC; margin-bottom:12px;"><strong>Catatan/Merchant:</strong> ${tx.note || '-'}</p>
+            `;
+
+            if (tx.source === 'struk') {
+                if (tx.image) {
+                    html += `<div style="margin: 10px 0;"><span style="font-size:12px; color:#AAA;">Foto Struk:</span><br><img src="${tx.image}" style="max-width:100%; border-radius:8px; border:1px solid #443C28; margin-top:4px;"></div>`;
+                }
+                if (tx.items && tx.items.length > 0) {
+                    html += `<div style="margin-top:10px;"><span style="font-size:12px; color:#D4AF37; font-weight:bold;">Item Terdeteksi:</span>`;
+                    tx.items.forEach(it => {
+                        html += `<div class="item-row"><span>${it.name}</span><span style="color:#D4AF37;">Rp ${it.price.toLocaleString('id-ID')}</span></div>`;
+                    });
+                    html += `</div>`;
+                }
+            } else if (tx.source === 'qr' && tx.rawData) {
+                html += `<div style="margin-top:10px;"><span style="font-size:12px; color:#AAA;">Raw QR Data:</span><pre style="background:#111; padding:8px; border-radius:6px; font-size:11px; color:#10B981; overflow-x:auto; margin-top:4px;">${tx.rawData}</pre></div>`;
+            }
+
+            content.innerHTML = html;
+            document.getElementById('modal-detail').classList.remove('hidden');
+        }
+
+        function closeModal() { document.getElementById('modal-detail').classList.add('hidden'); }
+
+        /* --- QR SCANNER --- */
+        function startQRScanner() {
+            if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
+            html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 220 }, onScanSuccess)
+                .then(() => document.getElementById('btn-stop-qr').classList.remove('hidden'))
+                .catch(err => console.log(err));
+        }
+
+        function stopQRScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().then(() => document.getElementById('btn-stop-qr').classList.add('hidden'));
+            }
+        }
+
+        function onScanSuccess(text) { stopQRScanner(); processQRData(text); }
+
+        document.getElementById('qr-input-file').addEventListener('change', e => {
+            if (e.target.files.length === 0) return;
+            if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
+            html5QrCode.scanFile(e.target.files[0], true).then(text => processQRData(text)).catch(() => alert("QR Code tidak terbaca."));
+        });
+
+        function processQRData(text) {
+            const numbers = text.match(/\d+/g);
+            let suggestedAmount = numbers ? numbers.join('') : '';
+            const amount = prompt(`QR Terdeteksi!\nIsi nominal transaksi:`, suggestedAmount);
+            if (amount && !isNaN(amount)) {
+                addTransaction({
+                    source: 'qr', type: 'out', amount: parseInt(amount), category: 'Belanja', note: `QR Merchant`, rawData: text
+                });
+                switchTab('manual');
+            }
+        }
+
+        /* --- STRUK OCR & PARSER --- */
+        document.getElementById('struk-file').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const base64Img = event.target.result;
+                document.getElementById('struk-preview').src = base64Img;
+                currentParsedStrukData = { image: base64Img, items: [] };
+            }
+            reader.readAsDataURL(file);
+
+            const statusEl = document.getElementById('ocr-status');
+            const progressText = document.getElementById('ocr-progress-text');
+            const previewContainer = document.getElementById('struk-preview-container');
+            
+            statusEl.classList.remove('hidden');
+            previewContainer.classList.add('hidden');
+
+            try {
+                const result = await Tesseract.recognize(file, 'ind', {
+                    logger: m => {
+                        if (m.status === 'recognizing text') progressText.innerText = `Membaca teks... (${Math.round(m.progress * 100)}%)`;
+                    }
+                });
+
+                const parsed = parseStrukDetails(result.data.text);
+                document.getElementById('struk-detected-amount').value = parsed.total || 0;
+                document.getElementById('struk-note').value = parsed.merchant || 'Struk Belanja';
+                currentParsedStrukData.items = parsed.items;
+
+                previewContainer.classList.remove('hidden');
+            } catch (err) {
+                alert('Gagal membaca struk.');
+            } finally {
+                statusEl.classList.add('hidden');
+            }
+        });
+
+        function parseStrukDetails(text) {
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            let total = 0;
+            let merchant = 'Toko/Merchant';
+            let items = [];
+
+            // Filter pencarian nama toko (Mencari baris atas yang bukan karakter aneh)
+            for (let line of lines.slice(0, 5)) {
+                const cleanLine = line.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+                if (cleanLine.length > 3 && !cleanLine.toLowerCase().includes('tgl') && !cleanLine.toLowerCase().includes('jam')) {
+                    merchant = cleanLine;
+                    break;
+                }
+            }
+
+            lines.forEach(line => {
+                const lower = line.toLowerCase();
+                // Deteksi total
+                if (lower.includes('total') || lower.includes('grand') || lower.includes('bayar')) {
+                    const matches = line.match(/(\d[\d.,]*)/g);
+                    if (matches) {
+                        matches.forEach(m => {
+                            const val = parseInt(m.replace(/[.,]/g, ''));
+                            if (!isNaN(val) && val > total) total = val;
+                        });
+                    }
+                } else {
+                    // Deteksi perkiraan item (Baris yang memuat teks dan angka di ujungnya)
+                    const itemMatch = line.match(/^(.+?)\s+(\d[\d.,]*)$/);
+                    if (itemMatch && !lower.includes('tunai') && !lower.includes('kembali')) {
+                        const price = parseInt(itemMatch[2].replace(/[.,]/g, ''));
+                        if (!isNaN(price) && price > 0 && price < 1000000) {
+                            items.push({ name: itemMatch[1].substring(0, 25), price });
+                        }
+                    }
+                }
+            });
+
+            return { total, merchant, items };
+        }
+
+        function saveStrukTransaction() {
+            const amount = document.getElementById('struk-detected-amount').value;
+            const note = document.getElementById('struk-note').value;
+
+            if (!amount || amount <= 0) {
+                alert('Nominal tidak valid.');
+                return;
+            }
+
+            addTransaction({
+                source: 'struk',
+                type: 'out',
+                amount: parseInt(amount),
+                category: 'Belanja',
+                note: note || 'Struk Belanja',
+                image: currentParsedStrukData ? currentParsedStrukData.image : null,
+                items: currentParsedStrukData ? currentParsedStrukData.items : []
+            });
+
+            document.getElementById('struk-file').value = '';
+            document.getElementById('struk-preview-container').classList.add('hidden');
+            switchTab('manual');
+        }
+
+        render();
+    </script>
+</body>
+</html>
