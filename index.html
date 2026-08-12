@@ -60,11 +60,12 @@
         .form-group { margin-bottom: 12px; }
         label { display: block; font-size: 12px; font-weight: 600; color: #D4AF37; margin-bottom: 6px; }
 
-        input[type="text"], input[type="number"], select, input[type="file"] {
+        input[type="text"], input[type="number"], input[type="date"], select, input[type="file"] {
             width: 100%; padding: 10px; background: #2A2A2A; border: 1px solid #443C28;
             color: #FFF; border-radius: 8px; outline: none; font-size: 14px;
         }
         input:focus, select:focus { border-color: #D4AF37; }
+        input[type="date"] { color-scheme: dark; }
 
         .radio-group { display: flex; gap: 8px; margin-bottom: 12px; }
         .radio-label {
@@ -104,6 +105,7 @@
         .badge-qr { background: #10B981; color: #FFF; }
         .badge-manual { background: #6B7280; color: #FFF; }
         .badge-utang { background: #F59E0B; color: #000; }
+        .badge-pending { background: #8B5CF6; color: #FFF; }
 
         /* Modal Detail & Modal Konfirmasi */
         .modal-overlay {
@@ -302,24 +304,33 @@
             </div>
             <p style="font-size:13px; color:#CCC; margin-bottom:12px;">
                 <span id="angsuran-nama" style="color:#FFF; font-weight:700;"></span><br>
-                Sisa: <span id="angsuran-sisa" style="color:#D4AF37; font-weight:700;"></span>
+                Sisa: <span id="angsuran-sisa" style="color:#D4AF37; font-weight:700;"></span><br>
+                Sudah dikembalikan: <span id="angsuran-terkonfirmasi" style="color:#4CAF50; font-weight:700;"></span>
             </p>
 
             <div class="tabs" style="margin-bottom:14px;">
-                <button onclick="switchAngsuranTab('bayar')" id="angsurantab-bayar" class="tab-btn active">Bayar Angsuran</button>
+                <button onclick="switchAngsuranTab('bayar')" id="angsurantab-bayar" class="tab-btn active">Balikan Berapa</button>
                 <button onclick="switchAngsuranTab('tambah')" id="angsurantab-tambah" class="tab-btn">Tambah Nominal</button>
             </div>
 
-            <!-- Sub-form: Bayar Angsuran -->
+            <!-- Sub-form: Catat uang yang sudah dikembalikan -->
             <div id="angsuran-sub-bayar">
+                <p style="font-size:12px; color:#999; margin-bottom:10px; line-height:1.5;">
+                    Catat berapa yang sudah dibalikin. Ini <strong>belum</strong> otomatis masuk ke saldo utama —
+                    pilih tanggal aslinya (bisa tanggal lampau kalau baru sekarang dicatat), lalu masukkan ke saldo lewat tombol "Masukkan ke Saldo" di riwayat.
+                </p>
                 <div class="form-group">
-                    <label>Nominal Angsuran (Rp)</label>
+                    <label>Nominal Dikembalikan (Rp)</label>
                     <input type="number" id="angsuran-amount" placeholder="Contoh: 50000">
+                </div>
+                <div class="form-group">
+                    <label>Tanggal Sebenarnya Dikembalikan</label>
+                    <input type="date" id="angsuran-date">
                 </div>
                 <p id="angsuran-error" class="hidden" style="color:#FF5252; font-size:12px; margin-bottom:10px;"></p>
                 <div style="display:flex; gap:8px;">
                     <button onclick="closeAngsuranModal()" class="btn btn-secondary">Batal</button>
-                    <button onclick="submitAngsuran()" class="btn btn-gold">Bayar</button>
+                    <button onclick="submitAngsuran()" class="btn btn-gold">Catat Balikan</button>
                 </div>
             </div>
 
@@ -332,6 +343,10 @@
                 <div class="form-group">
                     <label>Catatan</label>
                     <input type="text" id="tambah-note" placeholder="Misal: Pinjam lagi buat beli pulsa">
+                </div>
+                <div class="form-group">
+                    <label>Tanggal</label>
+                    <input type="date" id="tambah-date">
                 </div>
                 <p id="tambah-error" class="hidden" style="color:#FF5252; font-size:12px; margin-bottom:10px;"></p>
                 <div style="display:flex; gap:8px;">
@@ -407,7 +422,7 @@
                 date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
                 timestamp: Date.now(),
                 status: 'belum',
-                payments: [] // riwayat angsuran: { amount, date, timestamp }
+                payments: [] // riwayat angsuran/tambahan: { amount, date, timestamp, note, appliedToBalance }
             });
 
             saveDebts();
@@ -416,7 +431,7 @@
         }
 
         function getDebtPaid(d) {
-            return (d.payments || []).reduce((sum, p) => sum + p.amount, 0);
+            return (d.payments || []).filter(p => p.amount > 0).reduce((sum, p) => sum + p.amount, 0);
         }
 
         /* Render daftar utang/piutang ke dalam container manapun yang diberikan (dipakai oleh refreshRightCard) */
@@ -469,7 +484,7 @@
                         ` : `<div style="font-size:11px; color:#4CAF50; margin-top:8px;">✓ Lunas dibayar penuh</div>`}
 
                         <div style="display:flex; gap:8px; margin-top:10px;">
-                            ${!isLunas ? `<button onclick="openAngsuranModal('${type}', ${actualIndex})" class="btn btn-secondary" style="font-size:12px; padding:8px;">Bayar Angsuran</button>` : ''}
+                            ${!isLunas ? `<button onclick="openAngsuranModal('${type}', ${actualIndex})" class="btn btn-secondary" style="font-size:12px; padding:8px;">Kelola</button>` : ''}
                             <button onclick="confirmDeleteDebt('${type}', ${actualIndex})" class="btn btn-secondary" style="font-size:12px; padding:8px; color:#FF5252;">Hapus</button>
                         </div>
                     `;
@@ -481,8 +496,14 @@
                 `<span style="font-size:12px; font-weight:700; color:${accentColor};">Sisa belum lunas: Rp ${totalSisa.toLocaleString('id-ID')}</span>`;
         }
 
-        /* --- MODAL BAYAR ANGSURAN --- */
+        /* --- MODAL BAYAR ANGSURAN / BALIKAN --- */
         let angsuranContext = { type: null, index: null };
+
+        function todayInputValue() {
+            const d = new Date();
+            const tz = d.getTimezoneOffset() * 60000;
+            return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+        }
 
         function openAngsuranModal(type, index) {
             angsuranContext = { type, index };
@@ -492,25 +513,77 @@
 
             document.getElementById('angsuran-nama').innerText = d.name;
             document.getElementById('angsuran-sisa').innerText = `Rp ${sisa.toLocaleString('id-ID')}`;
+            document.getElementById('angsuran-terkonfirmasi').innerText = `Rp ${paid.toLocaleString('id-ID')}`;
             document.getElementById('angsuran-amount').value = '';
             document.getElementById('angsuran-amount').max = sisa;
+            document.getElementById('angsuran-date').value = todayInputValue();
             document.getElementById('angsuran-error').classList.add('hidden');
 
-            const historyEl = document.getElementById('angsuran-history');
-            if (d.payments && d.payments.length > 0) {
-                historyEl.innerHTML = `<div style="font-size:12px; color:#D4AF37; font-weight:700; margin-bottom:6px;">Riwayat Angsuran</div>` +
-                    d.payments.slice().reverse().map(p => `
-                        <div class="item-row"><span>${p.date}</span><span style="color:#D4AF37;">Rp ${p.amount.toLocaleString('id-ID')}</span></div>
-                    `).join('');
-            } else {
-                historyEl.innerHTML = '';
-            }
+            document.getElementById('tambah-amount').value = '';
+            document.getElementById('tambah-note').value = '';
+            document.getElementById('tambah-date').value = todayInputValue();
+            document.getElementById('tambah-error').classList.add('hidden');
 
+            switchAngsuranTab('bayar');
+            renderAngsuranHistory();
             document.getElementById('modal-angsuran').classList.remove('hidden');
         }
 
         function closeAngsuranModal() {
             document.getElementById('modal-angsuran').classList.add('hidden');
+        }
+
+        /* Ubah "yyyy-mm-dd" dari <input type=date> jadi label id-ID + timestamp, tanpa geser mundur karena UTC */
+        function parseDateInput(value) {
+            const [y, m, dd] = value.split('-').map(Number);
+            const dateObj = new Date(y, m - 1, dd, 12, 0, 0); // jam 12 siang biar aman dari pergeseran zona waktu
+            return {
+                label: dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+                timestamp: dateObj.getTime()
+            };
+        }
+
+        function renderAngsuranHistory() {
+            const { type, index } = angsuranContext;
+            const d = debts[type][index];
+            const historyEl = document.getElementById('angsuran-history');
+
+            if (d.payments && d.payments.length > 0) {
+                historyEl.innerHTML = `<div style="font-size:12px; color:#D4AF37; font-weight:700; margin-bottom:6px;">Riwayat Angsuran</div>` +
+                    d.payments.slice().reverse().map((p, revIdx) => {
+                        const actualPIdx = d.payments.length - 1 - revIdx;
+                        const isTambahan = p.amount < 0;
+                        const displayAmount = Math.abs(p.amount);
+
+                        if (isTambahan) {
+                            return `
+                                <div class="item-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+                                    <div style="display:flex; justify-content:space-between; width:100%;">
+                                        <span>${p.date} <span style="color:#F59E0B;">• Tambahan pinjaman</span></span>
+                                        <span style="color:#F59E0B;">+ Rp ${displayAmount.toLocaleString('id-ID')}</span>
+                                    </div>
+                                    ${p.note ? `<div style="font-size:11px; color:#999;">${p.note}</div>` : ''}
+                                </div>
+                            `;
+                        }
+
+                        const statusBadge = p.appliedToBalance
+                            ? `<span class="badge badge-manual" style="margin-left:4px;">SUDAH DI SALDO</span>`
+                            : `<span class="badge badge-pending" style="margin-left:4px;">BELUM DI SALDO</span>`;
+
+                        return `
+                            <div class="item-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
+                                <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                                    <span>${p.date}${statusBadge}</span>
+                                    <span style="color:#D4AF37;">Rp ${displayAmount.toLocaleString('id-ID')}</span>
+                                </div>
+                                ${!p.appliedToBalance ? `<button onclick="applyPaymentToBalance(${actualPIdx})" class="btn btn-secondary" style="font-size:11px; padding:6px; width:auto; align-self:flex-end;">Masukkan ke Saldo</button>` : ''}
+                            </div>
+                        `;
+                    }).join('');
+            } else {
+                historyEl.innerHTML = '';
+            }
         }
 
         function submitAngsuran() {
@@ -519,10 +592,11 @@
             const paid = getDebtPaid(d);
             const sisa = d.amount - paid;
             const val = parseInt(document.getElementById('angsuran-amount').value);
+            const dateVal = document.getElementById('angsuran-date').value;
 
             const errorEl = document.getElementById('angsuran-error');
             if (!val || val <= 0) {
-                errorEl.innerText = 'Nominal angsuran tidak valid.';
+                errorEl.innerText = 'Nominal balikan tidak valid.';
                 errorEl.classList.remove('hidden');
                 return;
             }
@@ -531,29 +605,55 @@
                 errorEl.classList.remove('hidden');
                 return;
             }
+            if (!dateVal) {
+                errorEl.innerText = 'Tanggal balikan wajib diisi.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            errorEl.classList.add('hidden');
+
+            const { label, timestamp } = parseDateInput(dateVal);
 
             if (!d.payments) d.payments = [];
             d.payments.push({
                 amount: val,
-                date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
-                timestamp: Date.now()
+                date: label,
+                timestamp,
+                appliedToBalance: false // catatan balikan ini BELUM otomatis masuk saldo utama
             });
 
             saveDebts();
-            closeAngsuranModal();
+            document.getElementById('angsuran-amount').value = '';
+            renderAngsuranHistory();
+            // Tetap di modal biar user bisa langsung tekan "Masukkan ke Saldo" kalau mau,
+            // atau lanjut catat balikan lain (misal beberapa balikan lampau sekaligus).
+        }
 
-            // Otomatis catat ke uang utama: piutang dibayar = uang masuk, utang dibayar = uang keluar
+        /* Baru di sinilah catatan balikan benar-benar dimasukkan ke saldo utama (transactions),
+           dengan tanggal ASLI saat uang itu dibalikin, bukan tanggal hari ini dicatat. */
+        function applyPaymentToBalance(paymentIndex) {
+            const { type, index } = angsuranContext;
+            const d = debts[type][index];
+            const p = d.payments[paymentIndex];
+            if (!p || p.appliedToBalance) return;
+
             addTransaction({
                 source: 'utang',
                 type: type === 'piutang' ? 'in' : 'out',
-                amount: val,
+                amount: p.amount,
                 category: type === 'piutang' ? 'Pelunasan Piutang' : 'Pelunasan Utang',
-                note: type === 'piutang' ? `Angsuran dari ${d.name}` : `Bayar angsuran ke ${d.name}`
+                note: type === 'piutang' ? `Angsuran dari ${d.name}` : `Bayar angsuran ke ${d.name}`,
+                customDate: p.date,
+                customTimestamp: p.timestamp
             });
+
+            p.appliedToBalance = true;
+            saveDebts();
+            renderAngsuranHistory();
             // addTransaction() otomatis memanggil render() -> refreshRightCard()
         }
 
-        /* --- SWITCH SUB-TAB DI DALAM MODAL ANGSURAN (Bayar / Tambah Nominal) --- */
+        /* --- SWITCH SUB-TAB DI DALAM MODAL ANGSURAN (Balikan / Tambah Nominal) --- */
         function switchAngsuranTab(tab) {
             ['bayar', 'tambah'].forEach(t => {
                 document.getElementById(`angsuran-sub-${t}`).classList.add('hidden');
@@ -573,6 +673,7 @@
             const d = debts[type][index];
             const val = parseInt(document.getElementById('tambah-amount').value);
             const note = document.getElementById('tambah-note').value;
+            const dateVal = document.getElementById('tambah-date').value;
 
             const errorEl = document.getElementById('tambah-error');
             if (!val || val <= 0) {
@@ -580,24 +681,32 @@
                 errorEl.classList.remove('hidden');
                 return;
             }
+            if (!dateVal) {
+                errorEl.innerText = 'Tanggal wajib diisi.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
             errorEl.classList.add('hidden');
+
+            const { label, timestamp } = parseDateInput(dateVal);
 
             // Tambah ke nominal utang/piutang yang sudah ada
             d.amount += val;
 
-            // Catat juga ke riwayat (nominal negatif = penambahan, biar beda dari pembayaran)
+            // Catat juga ke riwayat (nominal negatif = penambahan, biar beda dari balikan),
+            // catatan pinjaman di sini otomatis jadi bagian dari riwayat angsuran.
             if (!d.payments) d.payments = [];
             d.payments.push({
                 amount: -val,
                 note: note || 'Tambahan pinjaman',
-                date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
-                timestamp: Date.now()
+                date: label,
+                timestamp
             });
 
             saveDebts();
             document.getElementById('tambah-amount').value = '';
             document.getElementById('tambah-note').value = '';
-            closeAngsuranModal();
+            renderAngsuranHistory();
             refreshRightCard();
         }
 
@@ -685,9 +794,14 @@
         }
 
         function addTransaction(txObj) {
+            const customDate = txObj.customDate;
+            const customTimestamp = txObj.customTimestamp;
+            delete txObj.customDate;
+            delete txObj.customTimestamp;
+
             transactions.push({
-                date: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
-                timestamp: Date.now(),
+                date: customDate || new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
+                timestamp: customTimestamp || Date.now(),
                 ...txObj
             });
             render();
