@@ -163,6 +163,34 @@
     }
     .modal-body.modal-confirm-body { max-width: 380px; }
     .item-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #333; }
+
+    /* ===== FLOATING CHAT WIDGET (gaya WA) ===== */
+    .fab-chat-btn {
+        position: fixed; bottom: 20px; right: 20px; width: 58px; height: 58px;
+        border-radius: 50%; background: linear-gradient(135deg, #FFD700, #D4AF37);
+        border: none; box-shadow: 0 6px 16px rgba(0,0,0,0.5); cursor: pointer;
+        display: flex; align-items: center; justify-content: center; font-size: 26px;
+        z-index: 900; transition: transform 0.15s;
+    }
+    .fab-chat-btn:active { transform: scale(0.92); }
+
+    .fab-chat-panel {
+        position: fixed; bottom: 90px; right: 20px; width: 320px; max-width: calc(100vw - 32px);
+        background: #1E1E1E; border: 1px solid #D4AF37; border-radius: 14px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.6); z-index: 900; overflow: hidden;
+        display: flex; flex-direction: column;
+    }
+    .fab-chat-header {
+        background: linear-gradient(135deg, #1A1A1A, #2A2415); padding: 12px 14px;
+        display: flex; justify-content: space-between; align-items: center;
+        border-bottom: 1px solid #443C28;
+    }
+    .fab-chat-header span { color: #D4AF37; font-weight: 700; font-size: 14px; }
+    .fab-chat-header button {
+        background: none; border: none; color: #AAA; font-size: 16px; cursor: pointer;
+    }
+    .fab-chat-body { padding: 10px 12px 12px; }
+    .fab-chat-body .chat-window { min-height: 180px; max-height: 300px; }
 </style>
 </head>
 <body>
@@ -209,55 +237,34 @@
         </div>
     </section>
 
-    <!-- 1. Manual (form + chat cepat) -->
+    <!-- 1. Manual -->
     <section id="sec-manual" class="card hidden">
-        <div class="tabs sub-tabs">
-            <button onclick="switchManualSubTab('form')" id="manualsub-form" class="tab-btn active">Form</button>
-            <button onclick="switchManualSubTab('chat')" id="manualsub-chat" class="tab-btn">Chat Cepat</button>
-        </div>
-
-        <!-- Sub: Form manual (tidak berubah) -->
-        <div id="manual-sub-form">
-            <h3 style="margin-bottom: 12px; color: #D4AF37;">Input Manual</h3>
-            <form id="form-manual" onsubmit="addTransactionManual(event)">
-                <div class="radio-group">
-                    <label class="radio-label" style="color: #FF5252;"><input type="radio" name="type" value="out" checked> Pengeluaran</label>
-                    <label class="radio-label" style="color: #4CAF50;"><input type="radio" name="type" value="in"> Pemasukan</label>
-                </div>
-                <div class="form-group">
-                    <label>Nominal (Rp)</label>
-                    <input type="number" id="manual-amount" placeholder="Contoh: 25000" required>
-                </div>
-                <div class="form-group">
-                    <label>Kategori</label>
-                    <select id="manual-category">
-                        <option value="Makanan">Makanan & Minuman</option>
-                        <option value="Belanja">Belanja</option>
-                        <option value="Transport">Transportasi</option>
-                        <option value="Gaji">Gaji / Inflow</option>
-                        <option value="Lainnya">Lainnya</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Catatan</label>
-                    <input type="text" id="manual-note" placeholder="Misal: Makan siang">
-                </div>
-                <button type="submit" class="btn btn-gold">Tambah Transaksi</button>
-            </form>
-        </div>
-
-        <!-- Sub: Chat cepat -->
-        <div id="manual-sub-chat" class="hidden">
-            <h3 style="margin-bottom: 8px; color: #D4AF37;">Chat Cepat</h3>
-            <div id="chat-window" class="chat-window">
-                <div class="chat-bubble bot">Format: <strong>pengeluaran/pemasukan</strong> + <strong>nama</strong> + <strong>nominal</strong>.<br>Misal: <em>"pengeluaran beli tas 1jt"</em> atau <em>"pemasukan bisnis pentol 2jt"</em> 👍</div>
+        <h3 style="margin-bottom: 12px; color: #D4AF37;">Input Manual</h3>
+        <form id="form-manual" onsubmit="addTransactionManual(event)">
+            <div class="radio-group">
+                <label class="radio-label" style="color: #FF5252;"><input type="radio" name="type" value="out" checked> Pengeluaran</label>
+                <label class="radio-label" style="color: #4CAF50;"><input type="radio" name="type" value="in"> Pemasukan</label>
             </div>
-            <div class="chat-input-row">
-                <input type="text" id="chat-input" placeholder="pengeluaran beli tas 1jt" onkeydown="if(event.key==='Enter') sendChatMessage()">
-                <button onclick="sendChatMessage()">Kirim</button>
+            <div class="form-group">
+                <label>Nominal (Rp)</label>
+                <input type="number" id="manual-amount" placeholder="Contoh: 25000" required>
             </div>
-            <div class="chat-hint">Mulai pesan dengan "pengeluaran" atau "pemasukan", lanjut nama transaksinya, lalu nominal (pakai "k"/"rb"/"jt"). Kalau lupa tulis tipenya, aku tebak dari kata seperti "gaji"/"dapat"/"terima".</div>
-        </div>
+            <div class="form-group">
+                <label>Kategori</label>
+                <select id="manual-category">
+                    <option value="Makanan">Makanan & Minuman</option>
+                    <option value="Belanja">Belanja</option>
+                    <option value="Transport">Transportasi</option>
+                    <option value="Gaji">Gaji / Inflow</option>
+                    <option value="Lainnya">Lainnya</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Catatan</label>
+                <input type="text" id="manual-note" placeholder="Misal: Makan siang">
+            </div>
+            <button type="submit" class="btn btn-gold">Tambah Transaksi</button>
+        </form>
     </section>
 
     <!-- 2. Struk OCR -->
@@ -428,6 +435,30 @@
     </div>
 </div>
 
+<!-- Floating Chat Widget (gaya WA, bukan modal) -->
+<div id="fab-chat-panel" class="fab-chat-panel hidden">
+    <div class="fab-chat-header">
+        <span>💬 Chat Cepat</span>
+        <button onclick="toggleFabChat(false)">✕</button>
+    </div>
+    <div class="fab-chat-body">
+        <div id="fab-chat-window" class="chat-window">
+            <div class="chat-bubble bot">
+                Bisa buat catat <strong>transaksi</strong> maupun <strong>utang/piutang</strong>, dari tab mana aja. Contoh:<br>
+                • <em>"pengeluaran beli tas 1jt"</em><br>
+                • <em>"pemasukan bisnis pentol 2jt"</em><br>
+                • <em>"piutang budi 100k pinjam buat beli buku"</em><br>
+                • <em>"utang rina 50k bayar kos"</em>
+            </div>
+        </div>
+        <div class="chat-input-row">
+            <input type="text" id="fab-chat-input" placeholder="Ketik di sini..." onkeydown="if(event.key==='Enter') sendFabChatMessage()">
+            <button onclick="sendFabChatMessage()">Kirim</button>
+        </div>
+    </div>
+</div>
+<button class="fab-chat-btn" onclick="toggleFabChat()" title="Chat Cepat">💬</button>
+
 <script>
     let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
     let debts = {
@@ -481,6 +512,13 @@
         renderAll();
     }
 
+    function switchDebtFormTab(kind, mode) {
+        document.getElementById(`${kind}-form-form`).classList.toggle('hidden', mode !== 'form');
+        document.getElementById(`${kind}-form-chat`).classList.toggle('hidden', mode !== 'chat');
+        document.getElementById(`${kind}form-form`).classList.toggle('active', mode === 'form');
+        document.getElementById(`${kind}form-chat`).classList.toggle('active', mode === 'chat');
+    }
+
     /* ===================== MANUAL TX (FORM) ===================== */
     function addTransactionManual(e) {
         e.preventDefault();
@@ -518,13 +556,120 @@
     // Fallback kalau tidak ada kata kunci tipe eksplisit
     const CHAT_INCOME_WORDS = ['gaji', 'gajian', 'dapat', 'terima', 'bonus', 'transfer masuk', 'thr'];
 
-    nction addChatBubble(text, who, isError) {
-        const win = document.getElementById('chat-window');
+    function addChatBubble(text, who, isError) {
+        const win = document.getElementById('fab-chat-window');
         const div = document.createElement('div');
         div.className = 'chat-bubble ' + who + (isError ? ' error' : '');
         div.innerHTML = text;
         win.appendChild(div);
         win.scrollTop = win.scrollHeight;
+    }
+
+    // Cari angka+satuan terbesar dalam teks, kembalikan nominal & sisa teks tanpa angka itu
+    function parseAmountAndStrip(text) {
+        const regex = /(\d+(?:[.,]\d+)?)\s*(jt|juta|k|rb|ribu)?/gi;
+        let match, best = null, bestStr = null;
+        while ((match = regex.exec(text)) !== null) {
+            let num = parseFloat(match[1].replace(',', '.'));
+            const unit = (match[2] || '').toLowerCase();
+            if (unit === 'jt' || unit === 'juta') num *= 1000000;
+            else if (unit === 'k' || unit === 'rb' || unit === 'ribu') num *= 1000;
+            if (num > 0 && (best === null || num > best)) { best = num; bestStr = match[0]; }
+        }
+        if (best === null) return null;
+        const stripped = text.replace(bestStr, '').replace(/\s+/g, ' ').trim();
+        return { amount: best, stripped };
+    }
+
+    // Tentukan mode dari kata pertama: transaksi (pemasukan/pengeluaran) atau utang/piutang
+    function detectChatMode(text) {
+        const trimmed = text.trim();
+        const firstWord = trimmed.toLowerCase().split(/\s+/)[0];
+        if (TYPE_KEYWORDS_IN.includes(firstWord)) return { mode: 'tx_in', rest: trimmed.slice(firstWord.length).trim() };
+        if (TYPE_KEYWORDS_OUT.includes(firstWord)) return { mode: 'tx_out', rest: trimmed.slice(firstWord.length).trim() };
+        if (firstWord === 'piutang') return { mode: 'piutang', rest: trimmed.slice(firstWord.length).trim() };
+        if (firstWord === 'utang' || firstWord === 'hutang') return { mode: 'utang', rest: trimmed.slice(firstWord.length).trim() };
+        return { mode: null, rest: trimmed };
+    }
+
+    function toggleFabChat(forceOpen) {
+        const panel = document.getElementById('fab-chat-panel');
+        const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.classList.contains('hidden');
+        panel.classList.toggle('hidden', !shouldOpen);
+    }
+
+    function sendFabChatMessage() {
+        const input = document.getElementById('fab-chat-input');
+        const text = input.value.trim();
+        if (!text) return;
+        addChatBubble(text, 'user');
+        input.value = '';
+
+        const { mode, rest } = detectChatMode(text);
+
+        // ===== Mode: Piutang / Utang =====
+        if (mode === 'piutang' || mode === 'utang') {
+            const parsed = parseAmountAndStrip(rest);
+            if (!parsed) {
+                addChatBubble('Nominalnya belum ketemu. Format: "piutang/utang nama nominal catatan", misal "piutang budi 100k pinjam buku".', 'bot', true);
+                return;
+            }
+            const parts = parsed.stripped.split(/\s+/).filter(Boolean);
+            const rawName = parts.shift();
+            if (!rawName) {
+                addChatBubble('Nama orangnya belum ketulis. Format: "piutang/utang nama nominal catatan".', 'bot', true);
+                return;
+            }
+            const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+            const note = parts.join(' ');
+
+            debts[mode].push({
+                id: uid(), name, amount: parsed.amount, note,
+                date: new Date().toISOString(),
+                history: []
+            });
+            save();
+
+            addChatBubble(
+                `✅ ${mode === 'piutang' ? 'Piutang dari' : 'Utang ke'} <strong>${name}</strong> sebesar <strong>${fmt(parsed.amount)}</strong> dicatat${note ? ' — ' + note : ''}.`,
+                'bot'
+            );
+            renderAll();
+            return;
+        }
+
+        // ===== Mode: Transaksi (pemasukan/pengeluaran) =====
+        const amount = parseChatAmount(text);
+        if (!amount) {
+            addChatBubble('Nominalnya belum ketemu. Format: "pengeluaran/pemasukan nama nominal", misal "pengeluaran beli tas 1jt".', 'bot', true);
+            return;
+        }
+
+        let type, nameSource;
+        if (mode === 'tx_in' || mode === 'tx_out') {
+            type = mode === 'tx_in' ? 'in' : 'out';
+            nameSource = rest;
+        } else {
+            const lower = text.toLowerCase();
+            type = CHAT_INCOME_WORDS.some(w => lower.includes(w)) ? 'in' : 'out';
+            nameSource = text;
+        }
+
+        const note = nameSource.replace(/(\d+(?:[.,]\d+)?)\s*(jt|juta|k|rb|ribu)?/gi, '').replace(/\s+/g, ' ').trim() || nameSource.trim() || text;
+        const category = guessCategory(type, note || nameSource);
+
+        transactions.push({
+            id: uid(), type, amount, category, note,
+            date: new Date().toISOString(),
+            source: 'chat'
+        });
+        save();
+
+        addChatBubble(
+            `✅ ${type === 'in' ? 'Pemasukan' : 'Pengeluaran'} <strong>${fmt(amount)}</strong> — ${note ? note.charAt(0).toUpperCase() + note.slice(1) : category} (${category}) dicatat.`,
+            'bot'
+        );
+        renderAll();
     }
 
     function parseChatAmount(text) {
@@ -546,19 +691,6 @@
         return best;
     }
 
-    // Cari kata kunci tipe di AWAL pesan saja, lalu buang kata itu dari teks
-    function extractExplicitType(text) {
-        const lower = text.toLowerCase().trim();
-        const firstWord = lower.split(/\s+/)[0];
-        if (TYPE_KEYWORDS_IN.includes(firstWord)) {
-            return { type: 'in', rest: text.trim().slice(firstWord.length).trim() };
-        }
-        if (TYPE_KEYWORDS_OUT.includes(firstWord)) {
-            return { type: 'out', rest: text.trim().slice(firstWord.length).trim() };
-        }
-        return null;
-    }
-
     function guessCategory(type, nameText) {
         const lower = nameText.toLowerCase();
         const map = type === 'in' ? CHAT_CATEGORY_MAP_IN : CHAT_CATEGORY_MAP_OUT;
@@ -566,49 +698,6 @@
             if (entry.words.some(w => lower.includes(w))) return entry.cat;
         }
         return type === 'in' ? 'Pemasukan Lain' : 'Lainnya';
-    }
-
-    function sendChatMessage() {
-        const input = document.getElementById('chat-input');
-        const text = input.value.trim();
-        if (!text) return;
-        addChatBubble(text, 'user');
-        input.value = '';
-
-        const amount = parseChatAmount(text);
-        if (!amount) {
-            addChatBubble('Hmm, aku ngga nemu nominalnya. Coba format: "pengeluaran &lt;nama&gt; &lt;nominal&gt;", misal "pengeluaran beli tas 1jt".', 'bot', true);
-            return;
-        }
-
-        // Format yang diharapkan: <pemasukan/pengeluaran> <nama> <nominal>
-        const explicit = extractExplicitType(text);
-        let type, nameSource;
-        if (explicit) {
-            type = explicit.type;
-            nameSource = explicit.rest;
-        } else {
-            // fallback kalau user tidak menulis format eksplisit
-            const lower = text.toLowerCase();
-            type = CHAT_INCOME_WORDS.some(w => lower.includes(w)) ? 'in' : 'out';
-            nameSource = text;
-        }
-
-        const note = nameSource.replace(/(\d+(?:[.,]\d+)?)\s*(jt|juta|k|rb|ribu)?/gi, '').replace(/\s+/g, ' ').trim() || nameSource.trim() || text;
-        const category = guessCategory(type, note || nameSource);
-
-        transactions.push({
-            id: uid(), type, amount, category, note,
-            date: new Date().toISOString(),
-            source: 'chat'
-        });
-        save();
-
-        addChatBubble(
-            `✅ ${type === 'in' ? 'Pemasukan' : 'Pengeluaran'} <strong>${fmt(amount)}</strong> — ${note ? note.charAt(0).toUpperCase() + note.slice(1) : category} (${category}) dicatat.`,
-            'bot'
-        );
-        renderAll();
     }
 
     /* ===================== STRUK OCR ===================== */
@@ -734,6 +823,68 @@
         });
         save();
         e.target.reset();
+        renderAll();
+    }
+
+    /* ===== Chat Cepat untuk Utang & Piutang ===== */
+    // Cari angka+satuan terbesar dalam teks, lalu kembalikan nominal & sisa teks tanpa angka itu
+    function parseAmountAndStrip(text) {
+        const regex = /(\d+(?:[.,]\d+)?)\s*(jt|juta|k|rb|ribu)?/gi;
+        let match, best = null, bestStr = null;
+        while ((match = regex.exec(text)) !== null) {
+            let num = parseFloat(match[1].replace(',', '.'));
+            const unit = (match[2] || '').toLowerCase();
+            if (unit === 'jt' || unit === 'juta') num *= 1000000;
+            else if (unit === 'k' || unit === 'rb' || unit === 'ribu') num *= 1000;
+            if (num > 0 && (best === null || num > best)) { best = num; bestStr = match[0]; }
+        }
+        if (best === null) return null;
+        const stripped = text.replace(bestStr, '').replace(/\s+/g, ' ').trim();
+        return { amount: best, stripped };
+    }
+
+    function addDebtChatBubble(kind, text, who, isError) {
+        const win = document.getElementById(`debtchat-window-${kind}`);
+        const div = document.createElement('div');
+        div.className = 'chat-bubble ' + who + (isError ? ' error' : '');
+        div.innerHTML = text;
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    function sendDebtChatMessage(kind) {
+        const input = document.getElementById(`debtchat-input-${kind}`);
+        const text = input.value.trim();
+        if (!text) return;
+        addDebtChatBubble(kind, text, 'user');
+        input.value = '';
+
+        const parsed = parseAmountAndStrip(text);
+        if (!parsed) {
+            addDebtChatBubble(kind, 'Hmm, aku ngga nemu nominalnya. Format: "nama nominal catatan", misal "budi 100k pinjam buat beli buku".', 'bot', true);
+            return;
+        }
+        const parts = parsed.stripped.split(/\s+/).filter(Boolean);
+        const rawName = parts.shift();
+        if (!rawName) {
+            addDebtChatBubble(kind, 'Nama orangnya belum ketulis. Format: "nama nominal catatan".', 'bot', true);
+            return;
+        }
+        const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const note = parts.join(' ');
+
+        debts[kind].push({
+            id: uid(), name, amount: parsed.amount, note,
+            date: new Date().toISOString(),
+            history: []
+        });
+        save();
+
+        addDebtChatBubble(
+            kind,
+            `✅ ${kind === 'piutang' ? 'Piutang dari' : 'Utang ke'} <strong>${name}</strong> sebesar <strong>${fmt(parsed.amount)}</strong> dicatat${note ? ' — ' + note : ''}.`,
+            'bot'
+        );
         renderAll();
     }
 
@@ -969,7 +1120,6 @@
         }
     }
 
-    
     /* ===================== MODAL DETAIL / DELETE ===================== */
     function showTxDetail(id) {
         const t = transactions.find(x => x.id === id);
