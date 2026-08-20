@@ -448,7 +448,9 @@
                 • <em>"pengeluaran beli tas 1jt"</em><br>
                 • <em>"pemasukan bisnis pentol 2jt"</em><br>
                 • <em>"piutang budi 100k pinjam buat beli buku"</em><br>
-                • <em>"utang rina 50k bayar kos"</em>
+                • <em>"utang rina 50k bayar kos"</em><br>
+                Mau catat beberapa sekaligus? Pisahin pakai koma:<br>
+                • <em>"utang budi 50k bayar kos, rina 30k pulsa, tono 20k"</em>
             </div>
         </div>
         <div class="chat-input-row">
@@ -581,6 +583,11 @@
         return { amount: best, stripped };
     }
 
+    // Pisahkan satu pesan jadi beberapa "baris" entri utang/piutang, dipisah koma / baris baru / " dan "
+    function splitMultiEntries(text) {
+        return text.split(/,|\n|\bdan\b/gi).map(s => s.trim()).filter(Boolean);
+    }
+
     // Tentukan mode dari kata pertama: transaksi (pemasukan/pengeluaran) atau utang/piutang
     function detectChatMode(text) {
         const trimmed = text.trim();
@@ -607,33 +614,45 @@
 
         const { mode, rest } = detectChatMode(text);
 
-        // ===== Mode: Piutang / Utang =====
+        // ===== Mode: Piutang / Utang (mendukung banyak entri sekaligus, dipisah koma / "dan" / baris baru) =====
         if (mode === 'piutang' || mode === 'utang') {
-            const parsed = parseAmountAndStrip(rest);
-            if (!parsed) {
-                addChatBubble('Nominalnya belum ketemu. Format: "piutang/utang nama nominal catatan", misal "piutang budi 100k pinjam buku".', 'bot', true);
+            const segments = splitMultiEntries(rest);
+            if (!segments.length) {
+                addChatBubble('Nominalnya belum ketemu. Format: "piutang/utang nama nominal catatan", misal "piutang budi 100k pinjam buku". Bisa juga beberapa sekaligus dipisah koma.', 'bot', true);
                 return;
             }
-            const parts = parsed.stripped.split(/\s+/).filter(Boolean);
-            const rawName = parts.shift();
-            if (!rawName) {
-                addChatBubble('Nama orangnya belum ketulis. Format: "piutang/utang nama nominal catatan".', 'bot', true);
-                return;
-            }
-            const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-            const note = parts.join(' ');
 
-            debts[mode].push({
-                id: uid(), name, amount: parsed.amount, note,
-                date: new Date().toISOString(),
-                history: []
+            const successes = [];
+            const failures = [];
+
+            segments.forEach(seg => {
+                const parsed = parseAmountAndStrip(seg);
+                if (!parsed) { failures.push(seg); return; }
+                const parts = parsed.stripped.split(/\s+/).filter(Boolean);
+                const rawName = parts.shift();
+                if (!rawName) { failures.push(seg); return; }
+                const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+                const note = parts.join(' ');
+
+                debts[mode].push({
+                    id: uid(), name, amount: parsed.amount, note,
+                    date: new Date().toISOString(),
+                    history: []
+                });
+                successes.push({ name, amount: parsed.amount, note });
             });
-            save();
 
-            addChatBubble(
-                `✅ ${mode === 'piutang' ? 'Piutang dari' : 'Utang ke'} <strong>${name}</strong> sebesar <strong>${fmt(parsed.amount)}</strong> dicatat${note ? ' — ' + note : ''}.`,
-                'bot'
-            );
+            if (successes.length) save();
+
+            if (successes.length) {
+                const label = mode === 'piutang' ? 'Piutang dari' : 'Utang ke';
+                const lines = successes.map(s => `${label} <strong>${s.name}</strong> sebesar <strong>${fmt(s.amount)}</strong>${s.note ? ' — ' + s.note : ''}`);
+                const heading = successes.length > 1 ? `✅ ${successes.length} data dicatat:<br>` : '✅ ';
+                addChatBubble(heading + lines.join('<br>'), 'bot');
+            }
+            if (failures.length) {
+                addChatBubble(`⚠️ Ngga kebaca (nominal/nama belum ada): "${failures.join('", "')}". Format tiap entri: "nama nominal catatan".`, 'bot', true);
+            }
             renderAll();
             return;
         }
@@ -826,25 +845,10 @@
         renderAll();
     }
 
-    /* ===== Chat Cepat untuk Utang & Piutang ===== */
-    // Cari angka+satuan terbesar dalam teks, lalu kembalikan nominal & sisa teks tanpa angka itu
-    function parseAmountAndStrip(text) {
-        const regex = /(\d+(?:[.,]\d+)?)\s*(jt|juta|k|rb|ribu)?/gi;
-        let match, best = null, bestStr = null;
-        while ((match = regex.exec(text)) !== null) {
-            let num = parseFloat(match[1].replace(',', '.'));
-            const unit = (match[2] || '').toLowerCase();
-            if (unit === 'jt' || unit === 'juta') num *= 1000000;
-            else if (unit === 'k' || unit === 'rb' || unit === 'ribu') num *= 1000;
-            if (num > 0 && (best === null || num > best)) { best = num; bestStr = match[0]; }
-        }
-        if (best === null) return null;
-        const stripped = text.replace(bestStr, '').replace(/\s+/g, ' ').trim();
-        return { amount: best, stripped };
-    }
-
+    /* ===== Chat Cepat untuk Utang & Piutang (per-tab, opsional) ===== */
     function addDebtChatBubble(kind, text, who, isError) {
         const win = document.getElementById(`debtchat-window-${kind}`);
+        if (!win) return;
         const div = document.createElement('div');
         div.className = 'chat-bubble ' + who + (isError ? ' error' : '');
         div.innerHTML = text;
@@ -854,37 +858,44 @@
 
     function sendDebtChatMessage(kind) {
         const input = document.getElementById(`debtchat-input-${kind}`);
+        if (!input) return;
         const text = input.value.trim();
         if (!text) return;
         addDebtChatBubble(kind, text, 'user');
         input.value = '';
 
-        const parsed = parseAmountAndStrip(text);
-        if (!parsed) {
-            addDebtChatBubble(kind, 'Hmm, aku ngga nemu nominalnya. Format: "nama nominal catatan", misal "budi 100k pinjam buat beli buku".', 'bot', true);
-            return;
-        }
-        const parts = parsed.stripped.split(/\s+/).filter(Boolean);
-        const rawName = parts.shift();
-        if (!rawName) {
-            addDebtChatBubble(kind, 'Nama orangnya belum ketulis. Format: "nama nominal catatan".', 'bot', true);
-            return;
-        }
-        const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-        const note = parts.join(' ');
+        const segments = splitMultiEntries(text);
+        const successes = [];
+        const failures = [];
 
-        debts[kind].push({
-            id: uid(), name, amount: parsed.amount, note,
-            date: new Date().toISOString(),
-            history: []
+        segments.forEach(seg => {
+            const parsed = parseAmountAndStrip(seg);
+            if (!parsed) { failures.push(seg); return; }
+            const parts = parsed.stripped.split(/\s+/).filter(Boolean);
+            const rawName = parts.shift();
+            if (!rawName) { failures.push(seg); return; }
+            const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+            const note = parts.join(' ');
+
+            debts[kind].push({
+                id: uid(), name, amount: parsed.amount, note,
+                date: new Date().toISOString(),
+                history: []
+            });
+            successes.push({ name, amount: parsed.amount, note });
         });
-        save();
 
-        addDebtChatBubble(
-            kind,
-            `✅ ${kind === 'piutang' ? 'Piutang dari' : 'Utang ke'} <strong>${name}</strong> sebesar <strong>${fmt(parsed.amount)}</strong> dicatat${note ? ' — ' + note : ''}.`,
-            'bot'
-        );
+        if (successes.length) save();
+
+        if (successes.length) {
+            const label = kind === 'piutang' ? 'Piutang dari' : 'Utang ke';
+            const lines = successes.map(s => `${label} <strong>${s.name}</strong> sebesar <strong>${fmt(s.amount)}</strong>${s.note ? ' — ' + s.note : ''}`);
+            const heading = successes.length > 1 ? `✅ ${successes.length} data dicatat:<br>` : '✅ ';
+            addDebtChatBubble(kind, heading + lines.join('<br>'), 'bot');
+        }
+        if (failures.length) {
+            addDebtChatBubble(kind, `⚠️ Ngga kebaca: "${failures.join('", "')}". Format: "nama nominal catatan".`, 'bot', true);
+        }
         renderAll();
     }
 
