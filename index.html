@@ -33,9 +33,12 @@
             max-width: 1100px;
             display: grid;
             grid-template-columns: 1fr 1.2fr;
-            align-items: start;
+            align-items: stretch;
             gap: 24px;
         }
+        .right-col { display: flex; flex-direction: column; }
+        .right-col .card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        .right-col #right-card-list { flex: 1; overflow-y: auto; padding-right: 4px; }
     }
 
     .card {
