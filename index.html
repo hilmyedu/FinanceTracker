@@ -449,8 +449,9 @@
                 • <em>"pemasukan bisnis pentol 2jt"</em><br>
                 • <em>"piutang budi 100k pinjam buat beli buku"</em><br>
                 • <em>"utang rina 50k bayar kos"</em><br>
-                Mau catat beberapa sekaligus? Pisahin pakai koma:<br>
-                • <em>"utang budi 50k bayar kos, rina 30k pulsa, tono 20k"</em>
+                Mau catat beberapa sekaligus ke orang yang <strong>sama</strong>? Sebut namanya sekali di awal, sisanya cukup nominal + catatan:<br>
+                • <em>"utang rina 1jt beli sepatu, 200k uang kemarin, 300k belanja, 400k website, bayar 900k"</em><br>
+                Baris <strong>"bayar &lt;nominal&gt;"</strong> otomatis nyatet cicilan/pelunasan buat orang yang barusan disebut (statusnya pending, tinggal konfirmasi tanggal aslinya di riwayat).
             </div>
         </div>
         <div class="chat-input-row">
@@ -567,20 +568,22 @@
         win.scrollTop = win.scrollHeight;
     }
 
-    // Cari angka+satuan terbesar dalam teks, kembalikan nominal & sisa teks tanpa angka itu
+    // Cari angka+satuan terbesar dalam teks, kembalikan nominal, sisa teks tanpa angka itu,
+    // dan flag apakah nominal itu ada di posisi paling depan teks (artinya tidak ada nama di segmen ini)
     function parseAmountAndStrip(text) {
         const regex = /(\d+(?:[.,]\d+)?)\s*(jt|juta|k|rb|ribu)?/gi;
-        let match, best = null, bestStr = null;
+        let match, best = null, bestStr = null, bestIndex = -1;
         while ((match = regex.exec(text)) !== null) {
             let num = parseFloat(match[1].replace(',', '.'));
             const unit = (match[2] || '').toLowerCase();
             if (unit === 'jt' || unit === 'juta') num *= 1000000;
             else if (unit === 'k' || unit === 'rb' || unit === 'ribu') num *= 1000;
-            if (num > 0 && (best === null || num > best)) { best = num; bestStr = match[0]; }
+            if (num > 0 && (best === null || num > best)) { best = num; bestStr = match[0]; bestIndex = match.index; }
         }
         if (best === null) return null;
         const stripped = text.replace(bestStr, '').replace(/\s+/g, ' ').trim();
-        return { amount: best, stripped };
+        const atStart = text.slice(0, bestIndex).trim() === '';
+        return { amount: best, stripped, atStart };
     }
 
     // Pisahkan satu pesan jadi beberapa "baris" entri utang/piutang, dipisah koma / baris baru / " dan "
@@ -599,6 +602,83 @@
         return { mode: null, rest: trimmed };
     }
 
+    // Terapkan pembayaran/cicilan ke SEMUA utang/piutang milik satu nama (FIFO, yang paling lama duluan).
+    // Dicatat sebagai history 'pending' di tiap entri terkait (konsisten dengan alur modal angsuran),
+    // supaya tanggal aslinya tetap bisa dikonfirmasi manual sebelum masuk saldo.
+    function applyPaymentToPerson(kind, name, amount, dateISO) {
+        const lowerName = name.toLowerCase();
+        const list = debts[kind]
+            .filter(d => d.name.toLowerCase() === lowerName)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        let remaining = amount;
+        const date = dateISO || new Date().toISOString();
+
+        for (const debt of list) {
+            if (remaining <= 0) break;
+            const sisa = debtSisa(debt);
+            if (sisa <= 0) continue;
+            const applyAmount = Math.min(sisa, remaining);
+            debt.history.push({ id: uid(), amount: applyAmount, date, status: 'pending' });
+            remaining -= applyAmount;
+        }
+
+        if (list.length && remaining < amount) save();
+        return { appliedAmount: amount - remaining, leftover: remaining, hasDebt: list.length > 0 };
+    }
+
+    // Proses banyak segmen chat utang/piutang sekaligus.
+    // Nama cukup disebut sekali; segmen berikutnya yang cuma "nominal catatan" akan pakai nama terakhir.
+    // Segmen yang diawali "bayar <nominal>" akan mengurangi utang/piutang orang yang sama (bukan bikin entri baru).
+    function processDebtChatSegments(kind, rawText) {
+        const segments = splitMultiEntries(rawText);
+        const added = [], paid = [], failed = [];
+        let currentName = null;
+
+        segments.forEach(seg => {
+            const trimmed = seg.trim();
+            if (!trimmed) return;
+
+            const bayarMatch = trimmed.match(/^bayar\b(.*)$/i);
+            if (bayarMatch) {
+                if (!currentName) { failed.push(seg); return; }
+                const parsed = parseAmountAndStrip(bayarMatch[1].trim() || trimmed);
+                if (!parsed) { failed.push(seg); return; }
+                const result = applyPaymentToPerson(kind, currentName, parsed.amount);
+                if (!result.hasDebt) { failed.push(seg); return; }
+                paid.push({ name: currentName, amount: result.appliedAmount, leftover: result.leftover });
+                return;
+            }
+
+            const parsed = parseAmountAndStrip(trimmed);
+            if (!parsed) { failed.push(seg); return; }
+
+            let name, note;
+            if (parsed.atStart) {
+                if (!currentName) { failed.push(seg); return; }
+                name = currentName;
+                note = parsed.stripped;
+            } else {
+                const parts = parsed.stripped.split(/\s+/).filter(Boolean);
+                const rawName = parts.shift();
+                if (!rawName) { failed.push(seg); return; }
+                name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+                note = parts.join(' ');
+                currentName = name;
+            }
+
+            debts[kind].push({
+                id: uid(), name, amount: parsed.amount, note,
+                date: new Date().toISOString(),
+                history: []
+            });
+            added.push({ name, amount: parsed.amount, note });
+        });
+
+        if (added.length) save();
+        return { added, paid, failed };
+    }
+
     function toggleFabChat(forceOpen) {
         const panel = document.getElementById('fab-chat-panel');
         const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.classList.contains('hidden');
@@ -614,44 +694,31 @@
 
         const { mode, rest } = detectChatMode(text);
 
-        // ===== Mode: Piutang / Utang (mendukung banyak entri sekaligus, dipisah koma / "dan" / baris baru) =====
+        // ===== Mode: Piutang / Utang (mendukung banyak entri + pembayaran sekaligus, dipisah koma / "dan" / baris baru) =====
         if (mode === 'piutang' || mode === 'utang') {
-            const segments = splitMultiEntries(rest);
-            if (!segments.length) {
-                addChatBubble('Nominalnya belum ketemu. Format: "piutang/utang nama nominal catatan", misal "piutang budi 100k pinjam buku". Bisa juga beberapa sekaligus dipisah koma.', 'bot', true);
+            if (!rest) {
+                addChatBubble('Nominalnya belum ketemu. Format: "piutang/utang nama nominal catatan", misal "piutang budi 100k pinjam buku". Bisa juga beberapa sekaligus dipisah koma, dan tambah "bayar 100k" di akhir buat catat cicilan.', 'bot', true);
                 return;
             }
 
-            const successes = [];
-            const failures = [];
+            const { added, paid, failed } = processDebtChatSegments(mode, rest);
 
-            segments.forEach(seg => {
-                const parsed = parseAmountAndStrip(seg);
-                if (!parsed) { failures.push(seg); return; }
-                const parts = parsed.stripped.split(/\s+/).filter(Boolean);
-                const rawName = parts.shift();
-                if (!rawName) { failures.push(seg); return; }
-                const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-                const note = parts.join(' ');
-
-                debts[mode].push({
-                    id: uid(), name, amount: parsed.amount, note,
-                    date: new Date().toISOString(),
-                    history: []
-                });
-                successes.push({ name, amount: parsed.amount, note });
-            });
-
-            if (successes.length) save();
-
-            if (successes.length) {
+            if (added.length) {
                 const label = mode === 'piutang' ? 'Piutang dari' : 'Utang ke';
-                const lines = successes.map(s => `${label} <strong>${s.name}</strong> sebesar <strong>${fmt(s.amount)}</strong>${s.note ? ' — ' + s.note : ''}`);
-                const heading = successes.length > 1 ? `✅ ${successes.length} data dicatat:<br>` : '✅ ';
+                const lines = added.map(s => `${label} <strong>${s.name}</strong> sebesar <strong>${fmt(s.amount)}</strong>${s.note ? ' — ' + s.note : ''}`);
+                const heading = added.length > 1 ? `✅ ${added.length} data dicatat:<br>` : '✅ ';
                 addChatBubble(heading + lines.join('<br>'), 'bot');
             }
-            if (failures.length) {
-                addChatBubble(`⚠️ Ngga kebaca (nominal/nama belum ada): "${failures.join('", "')}". Format tiap entri: "nama nominal catatan".`, 'bot', true);
+            if (paid.length) {
+                const lines = paid.map(p => {
+                    let line = `💸 Bayar dari <strong>${p.name}</strong> sebesar <strong>${fmt(p.amount)}</strong> dicatat sebagai <em>pending</em>`;
+                    if (p.leftover > 0) line += ` (kelebihan ${fmt(p.leftover)} ngga diterapkan karena utangnya udah lunas)`;
+                    return line;
+                });
+                addChatBubble(lines.join('<br>') + '<br><span style="font-size:11px;color:#999;">Buka tab Utang → klik nama → "Masukkan ke Saldo" buat konfirmasi tanggal aslinya.</span>', 'bot');
+            }
+            if (failed.length) {
+                addChatBubble(`⚠️ Ngga kebaca: "${failed.join('", "')}". Format tiap entri: "nama nominal catatan", atau "bayar nominal" buat cicilan.`, 'bot', true);
             }
             renderAll();
             return;
@@ -864,37 +931,24 @@
         addDebtChatBubble(kind, text, 'user');
         input.value = '';
 
-        const segments = splitMultiEntries(text);
-        const successes = [];
-        const failures = [];
+        const { added, paid, failed } = processDebtChatSegments(kind, text);
 
-        segments.forEach(seg => {
-            const parsed = parseAmountAndStrip(seg);
-            if (!parsed) { failures.push(seg); return; }
-            const parts = parsed.stripped.split(/\s+/).filter(Boolean);
-            const rawName = parts.shift();
-            if (!rawName) { failures.push(seg); return; }
-            const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-            const note = parts.join(' ');
-
-            debts[kind].push({
-                id: uid(), name, amount: parsed.amount, note,
-                date: new Date().toISOString(),
-                history: []
-            });
-            successes.push({ name, amount: parsed.amount, note });
-        });
-
-        if (successes.length) save();
-
-        if (successes.length) {
+        if (added.length) {
             const label = kind === 'piutang' ? 'Piutang dari' : 'Utang ke';
-            const lines = successes.map(s => `${label} <strong>${s.name}</strong> sebesar <strong>${fmt(s.amount)}</strong>${s.note ? ' — ' + s.note : ''}`);
-            const heading = successes.length > 1 ? `✅ ${successes.length} data dicatat:<br>` : '✅ ';
+            const lines = added.map(s => `${label} <strong>${s.name}</strong> sebesar <strong>${fmt(s.amount)}</strong>${s.note ? ' — ' + s.note : ''}`);
+            const heading = added.length > 1 ? `✅ ${added.length} data dicatat:<br>` : '✅ ';
             addDebtChatBubble(kind, heading + lines.join('<br>'), 'bot');
         }
-        if (failures.length) {
-            addDebtChatBubble(kind, `⚠️ Ngga kebaca: "${failures.join('", "')}". Format: "nama nominal catatan".`, 'bot', true);
+        if (paid.length) {
+            const lines = paid.map(p => {
+                let line = `💸 Bayar dari <strong>${p.name}</strong> sebesar <strong>${fmt(p.amount)}</strong> dicatat sebagai <em>pending</em>`;
+                if (p.leftover > 0) line += ` (kelebihan ${fmt(p.leftover)} ngga diterapkan)`;
+                return line;
+            });
+            addDebtChatBubble(kind, lines.join('<br>'), 'bot');
+        }
+        if (failed.length) {
+            addDebtChatBubble(kind, `⚠️ Ngga kebaca: "${failed.join('", "')}". Format: "nama nominal catatan", atau "bayar nominal" buat cicilan.`, 'bot', true);
         }
         renderAll();
     }
