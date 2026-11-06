@@ -133,6 +133,17 @@
     /* ===== STRUK OCR ===== */
     #struk-preview { max-height: 180px; width: 100%; object-fit: contain; border-radius: 8px; margin-bottom: 12px; }
 
+    .camera-box {
+        position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
+        border: 1px solid #443C28; border-radius: 10px; overflow: hidden; margin-bottom: 12px;
+    }
+    .camera-box video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .camera-placeholder {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        color: #777; font-size: 13px; text-align: center; padding: 16px;
+    }
+    .btn-row { display: flex; gap: 8px; margin-bottom: 12px; }
+
     /* Tx list */
     .tx-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
     .tx-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -272,8 +283,31 @@
 
     <!-- 2. Struk OCR -->
     <section id="sec-struk" class="card hidden">
-        <h3 style="margin-bottom: 6px; color: #D4AF37;">Scan Struk Belanja</h3>
-        <input type="file" id="struk-file" accept="image/*" style="margin-bottom: 12px;" onchange="handleStrukFile(event)">
+        <h3 style="margin-bottom: 12px; color: #D4AF37;">Scan Struk Belanja</h3>
+
+        <div class="tabs sub-tabs">
+            <button onclick="switchStrukSubTab('camera')" id="struksub-camera" class="tab-btn active">📷 Kamera</button>
+            <button onclick="switchStrukSubTab('upload')" id="struksub-upload" class="tab-btn">📁 Upload File</button>
+        </div>
+
+        <!-- Sub-tab Kamera -->
+        <div id="struk-sub-camera">
+            <div class="camera-box" id="camera-box">
+                <video id="struk-video" autoplay playsinline muted></video>
+                <div id="camera-placeholder" class="camera-placeholder">Kamera belum aktif. Tekan "Nyalakan Kamera".</div>
+            </div>
+            <p id="camera-error" class="hidden" style="color:#FF5252; font-size:12px; margin-bottom:10px; line-height:1.5;"></p>
+            <div class="btn-row">
+                <button id="btn-camera-start" onclick="startCamera()" class="btn btn-secondary">Nyalakan Kamera</button>
+                <button id="btn-camera-flip" onclick="flipCamera()" class="btn btn-secondary hidden">🔄 Ganti</button>
+                <button id="btn-camera-capture" onclick="captureStruk()" class="btn btn-gold hidden">📸 Ambil Foto</button>
+            </div>
+        </div>
+
+        <!-- Sub-tab Upload -->
+        <div id="struk-sub-upload" class="hidden">
+            <input type="file" id="struk-file" accept="image/*" style="margin-bottom: 12px;" onchange="handleStrukFile(event)">
+        </div>
 
         <div id="ocr-status" class="hidden" style="color: #FFD700; font-weight: 600; font-size: 14px; margin-bottom: 12px;">
             ⏳ <span id="ocr-progress-text">Membaca gambar...</span>
@@ -289,7 +323,10 @@
                 <label>Nama Toko / Merchant:</label>
                 <input type="text" id="struk-note" placeholder="Nama Toko">
             </div>
-            <button onclick="saveStrukTransaction()" class="btn btn-gold">Simpan Dari Struk</button>
+            <div class="btn-row" style="margin-bottom:0;">
+                <button onclick="resetStrukUI()" class="btn btn-secondary">Ulangi</button>
+                <button onclick="saveStrukTransaction()" class="btn btn-gold">Simpan Dari Struk</button>
+            </div>
         </div>
     </section>
 
@@ -478,6 +515,9 @@
     let currentAngsuranTab = 'bayar';
     let activeDebtId = null;
     let currentStrukImageData = null;
+    let currentStrukSubTab = 'camera';
+    let cameraStream = null;
+    let cameraFacing = 'environment'; // kamera belakang
 
     const fmt = (n) => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 
@@ -491,6 +531,7 @@
 
     /* ===================== TABS ===================== */
     function switchTab(tab) {
+        if (tab !== 'struk') stopCamera();
         ['home', 'manual', 'struk', 'utang'].forEach(t => {
             document.getElementById(`sec-${t}`).classList.add('hidden');
             document.getElementById(`tab-${t}`).classList.remove('active');
@@ -789,6 +830,96 @@
         return type === 'in' ? 'Pemasukan Lain' : 'Lainnya';
     }
 
+    /* ===================== STRUK: KAMERA ===================== */
+    function switchStrukSubTab(sub) {
+        currentStrukSubTab = sub;
+        document.getElementById('struk-sub-camera').classList.toggle('hidden', sub !== 'camera');
+        document.getElementById('struk-sub-upload').classList.toggle('hidden', sub !== 'upload');
+        document.getElementById('struksub-camera').classList.toggle('active', sub === 'camera');
+        document.getElementById('struksub-upload').classList.toggle('active', sub === 'upload');
+        if (sub !== 'camera') stopCamera();
+        resetStrukUI();
+    }
+
+    async function startCamera() {
+        const errEl = document.getElementById('camera-error');
+        errEl.classList.add('hidden');
+        stopCamera();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            errEl.textContent = 'Browser ini tidak mendukung akses kamera (atau halaman tidak dibuka lewat HTTPS/localhost). Pakai tab Upload File sebagai gantinya.';
+            errEl.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: cameraFacing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                audio: false
+            });
+            const video = document.getElementById('struk-video');
+            video.srcObject = cameraStream;
+            document.getElementById('camera-placeholder').classList.add('hidden');
+            document.getElementById('btn-camera-start').classList.add('hidden');
+            document.getElementById('btn-camera-capture').classList.remove('hidden');
+            document.getElementById('btn-camera-flip').classList.remove('hidden');
+        } catch (err) {
+            errEl.textContent = (err && err.name === 'NotAllowedError')
+                ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser, atau pakai tab Upload File.'
+                : 'Kamera tidak bisa dibuka. Pakai tab Upload File sebagai gantinya.';
+            errEl.classList.remove('hidden');
+        }
+    }
+
+    function stopCamera() {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(t => t.stop());
+            cameraStream = null;
+        }
+        const video = document.getElementById('struk-video');
+        if (video) video.srcObject = null;
+        const ph = document.getElementById('camera-placeholder');
+        if (ph) ph.classList.remove('hidden');
+        ['btn-camera-capture', 'btn-camera-flip'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        });
+        const startBtn = document.getElementById('btn-camera-start');
+        if (startBtn) startBtn.classList.remove('hidden');
+    }
+
+    function flipCamera() {
+        cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment';
+        startCamera();
+    }
+
+    function captureStruk() {
+        const video = document.getElementById('struk-video');
+        if (!video.videoWidth) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        currentStrukImageData = canvas.toDataURL('image/jpeg', 0.92);
+
+        stopCamera();
+        document.getElementById('struk-preview').src = currentStrukImageData;
+        document.getElementById('struk-preview-container').classList.remove('hidden');
+        runStrukOCR(currentStrukImageData);
+    }
+
+    function resetStrukUI() {
+        currentStrukImageData = null;
+        document.getElementById('struk-file').value = '';
+        document.getElementById('struk-preview-container').classList.add('hidden');
+        document.getElementById('struk-detected-amount').value = '';
+        document.getElementById('struk-note').value = '';
+        document.getElementById('ocr-status').classList.add('hidden');
+        const warn = document.getElementById('ocr-warning');
+        if (warn) warn.remove();
+        if (currentStrukSubTab === 'camera' && currentMainTab === 'struk') startCamera();
+    }
+
     /* ===================== STRUK OCR ===================== */
     function handleStrukFile(e) {
         const file = e.target.files[0];
@@ -887,12 +1018,7 @@
             date: new Date().toISOString(), source: 'struk'
         });
         save();
-        document.getElementById('struk-file').value = '';
-        document.getElementById('struk-preview-container').classList.add('hidden');
-        document.getElementById('struk-detected-amount').value = '';
-        document.getElementById('struk-note').value = '';
-        const warn = document.getElementById('ocr-warning');
-        if (warn) warn.remove();
+        resetStrukUI();
         renderAll();
     }
 
